@@ -10,3 +10,6 @@
 [submodule "vendor/github.com/alecthomas/kingpin"]
 	path = vendor/github.com/alecthomas/kingpin
 	url = https://github.com/alecthomas/kingpin.git
+[submodule "vendor/github.com/mcuadros/go-version"]
+	path = vendor/github.com/mcuadros/go-version
+	url = https://github.com/mcuadros/go-version.git

@@ -3,4 +3,5 @@ bsm/sarama-cluster 2.1.6
 BurntSushi/toml d94612f (pulled on 22/03/2017)
 Shopify/sarama 3efb95d (pulled on 22/03/2017)
 gobwas/glob 51eb1ee (pulled on 22/03/2017)
+alecthomas/kingpin 2051e72 (pulled on 22/03/2017)
 
