@@ -7,3 +7,6 @@
 [submodule "vendor/github.com/gobwas/glob"]
 	path = vendor/github.com/gobwas/glob
 	url = https://github.com/gobwas/glob.git
+[submodule "vendor/github.com/alecthomas/kingpin"]
+	path = vendor/github.com/alecthomas/kingpin
+	url = https://github.com/alecthomas/kingpin.git
