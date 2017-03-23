@@ -30,12 +30,6 @@ var (
 	start_cmd        = kapp.Command("start", "start influx2kafka")
 )
 
-const (
-	BOOLEAN MetricValueType = iota
-	STRING
-	NUMERIC
-)
-
 func createDatabase(dbname string, client influx.Client) (err error) {
 	q := influx.NewQuery(fmt.Sprintf("CREATE DATABASE %s", dbname), "", "")
 	_, err = client.Query(q)

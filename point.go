@@ -8,6 +8,12 @@ import "encoding/json"
 import influx "github.com/influxdata/influxdb/client/v2"
 import "github.com/influxdata/influxdb/models" 
 
+const (
+	BOOLEAN MetricValueType = iota
+	STRING
+	NUMERIC
+)
+
 type Point struct {
 	Timestamp int64
 	Name      string
