@@ -9,7 +9,7 @@ import "github.com/Shopify/sarama"
 
 type GConfig struct {
 	BatchSize uint32 `toml:"batch_size"`
-	Topics    string
+	Topics    []string
 	Influxdb  InfluxdbConf
 	Databases map[string]string
 	Kafka     KafkaConf
@@ -121,7 +121,7 @@ func (conf *GConfig) check() error {
 	}
 
 	if len(conf.Topics) == 0 {
-		return fmt.Errorf("Provide a glob for kafka topics")
+		return fmt.Errorf("Provide a list of kafka topics")
 	}
 
 	if len(conf.Kafka.Brokers) == 0 {
