@@ -1,0 +1,29 @@
+topics = ["telegraf_*"]
+batch_size = 5000
+
+[influxdb]
+host = "http://influxdb:8086"
+auth = false
+username = ""
+password = ""
+precision = "s"
+
+[databases]
+"telegraf_biggusdickus.vesperal.org" = "generic"
+"telegraf_bigoctopuss.vesperal.org"  = "generic"
+telegraf_newpgsql                    = "dbms"
+telegraf_newmysql                    = "dbms"
+telegraf_ldap                        = "dbms"
+telegraf_webmail                     = "web"
+telegraf_seafile                     = "seafile"
+telegraf_vmail                       = "mail"
+telegraf_piwigo                      = "web"
+default                              = "generic"
+
+[kafka]
+brokers = ["kafka1.vpn:9092", "kafka2.vpn:9092", "kafka3.vpn:9092"]
+client_id = "kafka2influx1"
+consumer_group = "kafka2influx-cg"
+version = "0.10.1.1"
+format = "json"
+
