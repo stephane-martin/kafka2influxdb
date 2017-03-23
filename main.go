@@ -38,8 +38,6 @@ type Kafka2InfluxdbApp struct {
 	conf *GConfig
 }
 
-
-
 const (
 	BOOLEAN MetricValueType = iota
 	STRING
@@ -135,22 +133,26 @@ func (app *Kafka2InfluxdbApp) createDatabases(topics []string) (err error) {
 	return nil
 }
 
-func (app *Kafka2InfluxdbApp) getTelegrafTopics() (topics []string, err error) {
+func (app *Kafka2InfluxdbApp) getTelegrafTopics() ([]string, error) {
 
-	var client sarama.Client
 	var consumer sarama.Consumer
-	topics = []string{}
-	sarama_conf, _ := app.kafkaConf()
+	selected_topics := []string{}
+	topics_map := map[string]bool{}
 
-	client, err = sarama.NewClient(app.conf.Kafka.Brokers, sarama_conf)
+	sarama_conf, err := app.kafkaConf()
+	if err != nil {
+		return selected_topics, err
+	}
+
+	client, err := sarama.NewClient(app.conf.Kafka.Brokers, sarama_conf)
 	if err != nil {
 		log.WithError(err).Error("Error creating the sarama Kafka client")
-		return topics, err
+		return selected_topics, err
 	}
 	consumer, err = sarama.NewConsumerFromClient(client)
 	if err != nil {
 		log.WithError(err).Error("Error creating the sarama Kafka consumer")
-		return topics, err
+		return selected_topics, err
 	}
 
 	defer func() {
@@ -167,20 +169,25 @@ func (app *Kafka2InfluxdbApp) getTelegrafTopics() (topics []string, err error) {
 	}()
 
 	alltopics, err := consumer.Topics()
-
-	if len(app.conf.Topics) == 0 {
-		return alltopics, nil
+	if err != nil {
+		return selected_topics, err
 	}
 
-	g := glob.MustCompile(app.conf.Topics)
+	for _, topic_glob := range app.conf.Topics {
+		g := glob.MustCompile(topic_glob)
 
-	for _, topic := range alltopics {
-		if g.Match(topic) {
-			topics = append(topics, topic)
+		for _, topic := range alltopics {
+			if g.Match(topic) {
+				topics_map[topic] = true
+			}
 		}
 	}
+	
+	for topic, _ := range topics_map {
+		selected_topics = append(selected_topics, topic)
+	}
 
-	return topics, nil
+	return selected_topics, nil
 
 }
 
@@ -206,7 +213,7 @@ func (app *Kafka2InfluxdbApp) process(pack []*sarama.ConsumerMessage) (err error
 	log.WithField("nb_points", len(pack)).Info("Pushing points to InfluxDB")
 	topicBatchMap := map[string]influx.BatchPoints{}
 
-	var parse_fun func ([]byte, string) (*influx.Point, error)
+	var parse_fun func([]byte, string) (*influx.Point, error)
 	if app.conf.Kafka.Format == "json" {
 		parse_fun = parseJsonPoint
 	} else if app.conf.Kafka.Format == "influx" {
@@ -311,7 +318,6 @@ func (app *Kafka2InfluxdbApp) kafkaConf() (*sarama.Config, error) {
 
 	return conf, nil
 }
-
 
 func (app *Kafka2InfluxdbApp) kafkaClusterConf() (*cluster.Config, error) {
 	simple_conf, err := app.kafkaConf()
