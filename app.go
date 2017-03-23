@@ -117,8 +117,6 @@ func (app *Kafka2InfluxdbApp) getTelegrafTopics() ([]string, error) {
 }
 
 func (app *Kafka2InfluxdbApp) process(pack []*sarama.ConsumerMessage) (err error) {
-	// todo: kafka source in line protocol format
-
 	config, err := app.conf.getInfluxHTTPConfig()
 	if err != nil {
 		log.WithError(err).
