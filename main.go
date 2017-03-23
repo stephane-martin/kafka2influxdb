@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"log/syslog"
@@ -52,41 +51,6 @@ func (app *Kafka2InfluxdbApp) topic2dbname(topic string) string {
 	}
 }
 
-func (app *Kafka2InfluxdbApp) influxConnection() (influx.HTTPConfig, error) {
-	var tlsConfigPtr *tls.Config = nil
-	var err error
-
-	if app.conf.Influxdb.TLS.Enable {
-		tlsConfigPtr, err = GetTLSConfig(
-			app.conf.Influxdb.TLS.Certificate,
-			app.conf.Influxdb.TLS.PrivateKey,
-			app.conf.Influxdb.TLS.CertificateAuthority,
-			app.conf.Influxdb.TLS.InsecureSkipVerify,
-		)
-		if err != nil {
-			return influx.HTTPConfig{}, err
-		}
-	}
-
-	if app.conf.Influxdb.Auth {
-		return influx.HTTPConfig{
-			Addr:               app.conf.Influxdb.Host,
-			Username:           app.conf.Influxdb.Username,
-			Password:           app.conf.Influxdb.Password,
-			Timeout:            time.Duration(app.conf.Influxdb.Timeout) * time.Millisecond,
-			InsecureSkipVerify: app.conf.Influxdb.TLS.InsecureSkipVerify,
-			TLSConfig:          tlsConfigPtr,
-		}, nil
-	}
-
-	return influx.HTTPConfig{
-		Addr:               app.conf.Influxdb.Host,
-		Timeout:            time.Duration(app.conf.Influxdb.Timeout) * time.Millisecond,
-		InsecureSkipVerify: app.conf.Influxdb.TLS.InsecureSkipVerify,
-		TLSConfig:          tlsConfigPtr,
-	}, nil
-}
-
 func createDatabase(dbname string, client influx.Client) (err error) {
 	q := influx.NewQuery(fmt.Sprintf("CREATE DATABASE %s", dbname), "", "")
 	_, err = client.Query(q)
@@ -103,7 +67,7 @@ func (app *Kafka2InfluxdbApp) createDatabases(topics []string) (err error) {
 		databases = append(databases, dbname)
 	}
 
-	config, err := app.influxConnection()
+	config, err := app.conf.getInfluxHTTPConfig()
 	if err != nil {
 		log.WithError(err).
 			WithField("action", "creating TLS configuration").
@@ -139,7 +103,7 @@ func (app *Kafka2InfluxdbApp) getTelegrafTopics() ([]string, error) {
 	selected_topics := []string{}
 	topics_map := map[string]bool{}
 
-	sarama_conf, err := app.kafkaConf()
+	sarama_conf, err := app.conf.getSaramaConf()
 	if err != nil {
 		return selected_topics, err
 	}
@@ -182,7 +146,7 @@ func (app *Kafka2InfluxdbApp) getTelegrafTopics() ([]string, error) {
 			}
 		}
 	}
-	
+
 	for topic, _ := range topics_map {
 		selected_topics = append(selected_topics, topic)
 	}
@@ -196,7 +160,7 @@ func (app *Kafka2InfluxdbApp) getTelegrafTopics() ([]string, error) {
 func (app *Kafka2InfluxdbApp) process(pack []*sarama.ConsumerMessage) (err error) {
 	// todo: kafka source in line protocol format
 
-	config, err := app.influxConnection()
+	config, err := app.conf.getInfluxHTTPConfig()
 	if err != nil {
 		log.WithError(err).
 			WithField("action", "creating TLS configuration").
@@ -282,57 +246,9 @@ func (app *Kafka2InfluxdbApp) processAndCommit(consumer *cluster.Consumer, pack 
 	return nil
 }
 
-func (app *Kafka2InfluxdbApp) kafkaConf() (*sarama.Config, error) {
-	var tlsConfigPtr *tls.Config = nil
-	var err error
-	conf := sarama.NewConfig()
-
-	conf.Consumer.Return.Errors = true
-	conf.Consumer.Offsets.Initial = sarama.OffsetOldest
-	conf.Consumer.MaxProcessingTime = 2000 * time.Millisecond
-	conf.Consumer.MaxWaitTime = 500 * time.Millisecond
-	conf.ClientID = app.conf.Kafka.ClientID
-	conf.Version = app.conf.Kafka.cVersion
-	conf.ChannelBufferSize = int(app.conf.BatchSize)
-
-	if app.conf.Kafka.TLS.Enable {
-		tlsConfigPtr, err = GetTLSConfig(
-			app.conf.Kafka.TLS.Certificate,
-			app.conf.Kafka.TLS.PrivateKey,
-			app.conf.Kafka.TLS.CertificateAuthority,
-			app.conf.Kafka.TLS.InsecureSkipVerify,
-		)
-		if err != nil {
-			return nil, err
-		}
-		conf.Net.TLS.Enable = true
-		conf.Net.TLS.Config = tlsConfigPtr
-	}
-
-	if app.conf.Kafka.SASL.Enable {
-		conf.Net.SASL.Enable = true
-		conf.Net.SASL.Handshake = true
-		conf.Net.SASL.User = app.conf.Kafka.SASL.Username
-		conf.Net.SASL.Password = app.conf.Kafka.SASL.Password
-	}
-
-	return conf, nil
-}
-
-func (app *Kafka2InfluxdbApp) kafkaClusterConf() (*cluster.Config, error) {
-	simple_conf, err := app.kafkaConf()
-	if err != nil {
-		return nil, err
-	}
-	cluster_conf := cluster.NewConfig()
-	cluster_conf.Config = *simple_conf
-	cluster_conf.Group.Return.Notifications = true
-	return cluster_conf, nil
-}
-
 func (app *Kafka2InfluxdbApp) consume() (uint64, error) {
 
-	sarama_conf, _ := app.kafkaClusterConf()
+	sarama_conf, _ := app.conf.getSaramaClusterConf()
 	var count uint32
 	var total_count uint64
 

@@ -1,11 +1,18 @@
 package main
 
-import "strings"
-import "fmt"
-import "strconv"
-import "math"
-import vutils "github.com/mcuadros/go-version"
-import "github.com/Shopify/sarama"
+import (
+	"crypto/tls"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+
+	vutils "github.com/mcuadros/go-version"
+	"github.com/Shopify/sarama"
+	cluster "github.com/bsm/sarama-cluster"
+	influx "github.com/influxdata/influxdb/client/v2"
+)
 
 type GConfig struct {
 	BatchSize uint32 `toml:"batch_size"`
@@ -31,7 +38,7 @@ type InfluxTLSConf struct {
 	CertificateAuthority string `toml:"certificate_authority"`
 	Certificate          string
 	PrivateKey           string `toml:"private_key"`
-	InsecureSkipVerify 	 bool   `toml:"insecure"`
+	InsecureSkipVerify   bool   `toml:"insecure"`
 }
 
 type KafkaConf struct {
@@ -50,7 +57,7 @@ type KafkaTLSConf struct {
 	CertificateAuthority string `toml:"certificate_authority"`
 	Certificate          string
 	PrivateKey           string `toml:"private_key"`
-	InsecureSkipVerify 	 bool   `toml:"insecure"`
+	InsecureSkipVerify   bool   `toml:"insecure"`
 }
 
 type KafkaSASLConf struct {
@@ -184,4 +191,87 @@ func (conf *GConfig) String() string {
 		s += fmt.Sprintf("%s => %s\n", topic, dbname)
 	}
 	return s
+}
+
+func (conf *GConfig) getInfluxHTTPConfig() (influx.HTTPConfig, error) {
+	var tlsConfigPtr *tls.Config = nil
+	var err error
+
+	if conf.Influxdb.TLS.Enable {
+		tlsConfigPtr, err = GetTLSConfig(
+			conf.Influxdb.TLS.Certificate,
+			conf.Influxdb.TLS.PrivateKey,
+			conf.Influxdb.TLS.CertificateAuthority,
+			conf.Influxdb.TLS.InsecureSkipVerify,
+		)
+		if err != nil {
+			return influx.HTTPConfig{}, err
+		}
+	}
+
+	if conf.Influxdb.Auth {
+		return influx.HTTPConfig{
+			Addr:               conf.Influxdb.Host,
+			Username:           conf.Influxdb.Username,
+			Password:           conf.Influxdb.Password,
+			Timeout:            time.Duration(conf.Influxdb.Timeout) * time.Millisecond,
+			InsecureSkipVerify: conf.Influxdb.TLS.InsecureSkipVerify,
+			TLSConfig:          tlsConfigPtr,
+		}, nil
+	}
+
+	return influx.HTTPConfig{
+		Addr:               conf.Influxdb.Host,
+		Timeout:            time.Duration(conf.Influxdb.Timeout) * time.Millisecond,
+		InsecureSkipVerify: conf.Influxdb.TLS.InsecureSkipVerify,
+		TLSConfig:          tlsConfigPtr,
+	}, nil
+}
+
+func (c *GConfig) getSaramaConf() (*sarama.Config, error) {
+	var tlsConfigPtr *tls.Config = nil
+	var err error
+	conf := sarama.NewConfig()
+
+	conf.Consumer.Return.Errors = true
+	conf.Consumer.Offsets.Initial = sarama.OffsetOldest
+	conf.Consumer.MaxProcessingTime = 2000 * time.Millisecond
+	conf.Consumer.MaxWaitTime = 500 * time.Millisecond
+	conf.ClientID = c.Kafka.ClientID
+	conf.Version = c.Kafka.cVersion
+	conf.ChannelBufferSize = int(c.BatchSize)
+
+	if c.Kafka.TLS.Enable {
+		tlsConfigPtr, err = GetTLSConfig(
+			c.Kafka.TLS.Certificate,
+			c.Kafka.TLS.PrivateKey,
+			c.Kafka.TLS.CertificateAuthority,
+			c.Kafka.TLS.InsecureSkipVerify,
+		)
+		if err != nil {
+			return nil, err
+		}
+		conf.Net.TLS.Enable = true
+		conf.Net.TLS.Config = tlsConfigPtr
+	}
+
+	if c.Kafka.SASL.Enable {
+		conf.Net.SASL.Enable = true
+		conf.Net.SASL.Handshake = true
+		conf.Net.SASL.User = c.Kafka.SASL.Username
+		conf.Net.SASL.Password = c.Kafka.SASL.Password
+	}
+
+	return conf, nil
+}
+
+func (c *GConfig) getSaramaClusterConf() (*cluster.Config, error) {
+	simple_conf, err := c.getSaramaConf()
+	if err != nil {
+		return nil, err
+	}
+	cluster_conf := cluster.NewConfig()
+	cluster_conf.Config = *simple_conf
+	cluster_conf.Group.Return.Notifications = true
+	return cluster_conf, nil
 }
