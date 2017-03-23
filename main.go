@@ -14,7 +14,11 @@ import (
 	influx "github.com/influxdata/influxdb/client/v2"
 )
 
-var log = logrus.New()
+var log *logrus.Logger
+
+func init() {
+	log = logrus.New()
+}
 
 var (
 	kapp             = kingpin.New("kafka2influxdb", "Get metrics from Kafka and push them to InfluxDB")
