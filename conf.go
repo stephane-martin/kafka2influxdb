@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	vutils "github.com/mcuadros/go-version"
 	"github.com/Shopify/sarama"
 	cluster "github.com/bsm/sarama-cluster"
 	influx "github.com/influxdata/influxdb/client/v2"
+	vutils "github.com/mcuadros/go-version"
 )
 
 type GConfig struct {
@@ -274,4 +274,12 @@ func (c *GConfig) getSaramaClusterConf() (*cluster.Config, error) {
 	cluster_conf.Config = *simple_conf
 	cluster_conf.Group.Return.Notifications = true
 	return cluster_conf, nil
+}
+
+func (c *GConfig) topic2dbname(topic string) string {
+	if dbname, ok := c.Databases[topic]; ok {
+		return dbname
+	} else {
+		return c.Databases["default"]
+	}
 }
