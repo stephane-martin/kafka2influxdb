@@ -1,69 +1,131 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"fmt"
+	"io/ioutil"
 	"math"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/BurntSushi/toml"
 	"github.com/Shopify/sarama"
 	cluster "github.com/bsm/sarama-cluster"
+	"github.com/gobwas/glob"
 	influx "github.com/influxdata/influxdb/client/v2"
 	vutils "github.com/mcuadros/go-version"
 )
 
 type GConfig struct {
-	BatchSize uint32 `toml:"batch_size"`
-	Topics    []string
-	Influxdb  InfluxdbConf
-	Databases map[string]string
-	Kafka     KafkaConf
+	BatchSize        uint32              `toml:"batch_size"`
+	BatchMaxDuration uint32              `toml:"batch_max_duration"`
+	Topics           []string            `toml:"topics"`
+	RefreshTopics    uint32              `toml:"refresh_topics"`
+	Influxdb         InfluxdbConf        `toml:"influxdb"`
+	Mapping          []map[string]string `toml:"mapping"`
+	Kafka            KafkaConf           `toml:"kafka"`
 }
 
 type InfluxdbConf struct {
-	Host            string
-	Auth            bool
-	Username        string
-	Password        string
-	Precision       string
-	RetentionPolicy string
-	Timeout         uint32
-	TLS             InfluxTLSConf
+	Host            string        `toml:"host"`
+	Auth            bool          `toml:"auth"`
+	Username        string        `toml:"username"`
+	Password        string        `toml:"password"`
+	CreateDatabases bool          `toml:"create_databases"`
+	AdminUsername   string        `toml:"admin_username"`
+	AdminPassword   string        `toml:"admin_password"`
+	Precision       string        `toml:"precision"`
+	RetentionPolicy string        `toml:"retention_policy"`
+	Timeout         uint32        `toml:"timeout"`
+	TLS             InfluxTLSConf `toml:"tls"`
 }
 
 type InfluxTLSConf struct {
-	Enable               bool
+	Enable               bool   `toml:"enable"`
 	CertificateAuthority string `toml:"certificate_authority"`
-	Certificate          string
+	Certificate          string `toml:"certificate"`
 	PrivateKey           string `toml:"private_key"`
 	InsecureSkipVerify   bool   `toml:"insecure"`
 }
 
 type KafkaConf struct {
-	Brokers       []string
-	ClientID      string `toml:"client_id"`
-	ConsumerGroup string `tml:"consumer_group"`
-	Version       string
+	Brokers       []string `toml: brokers`
+	ClientID      string   `toml:"client_id"`
+	ConsumerGroup string   `toml:"consumer_group"`
+	Version       string   `toml:"version"`
 	cVersion      sarama.KafkaVersion
-	TLS           KafkaTLSConf
-	SASL          KafkaSASLConf
-	Format        string
+	TLS           KafkaTLSConf  `toml:"tls"`
+	SASL          KafkaSASLConf `toml:"sasl"`
+	Format        string        `toml:"format"`
 }
 
 type KafkaTLSConf struct {
-	Enable               bool
+	Enable               bool   `toml:"enable"`
 	CertificateAuthority string `toml:"certificate_authority"`
-	Certificate          string
+	Certificate          string `toml:"certificate"`
 	PrivateKey           string `toml:"private_key"`
 	InsecureSkipVerify   bool   `toml:"insecure"`
 }
 
 type KafkaSASLConf struct {
-	Enable   bool
-	Username string
-	Password string
+	Enable   bool   `toml:"enable"`
+	Username string `toml:"username"`
+	Password string `toml:"password"`
+}
+
+var influxdb_default_conf InfluxdbConf = InfluxdbConf{
+	Host:            "http://influxdb_host:8086",
+	Auth:            false,
+	Username:        "",
+	Password:        "",
+	AdminUsername:   "",
+	AdminPassword:   "",
+	CreateDatabases: false,
+	Precision:       "ns",
+	RetentionPolicy: "",
+	Timeout:         5000,
+	TLS: InfluxTLSConf{
+		Enable:               false,
+		Certificate:          "",
+		CertificateAuthority: "",
+		PrivateKey:           "",
+		InsecureSkipVerify:   false,
+	},
+}
+
+var kafka_default_conf KafkaConf = KafkaConf{
+	Brokers:       []string{"kafka1", "kafka2", "kafka3"},
+	ClientID:      "kafka2influxdb",
+	ConsumerGroup: "kafka2influxdb-cg",
+	Version:       "0.9.0.0",
+	Format:        "json",
+	TLS: KafkaTLSConf{
+		Enable:               false,
+		Certificate:          "",
+		CertificateAuthority: "",
+		PrivateKey:           "",
+		InsecureSkipVerify:   false,
+	},
+	SASL: KafkaSASLConf{
+		Enable:   false,
+		Username: "",
+		Password: "",
+	},
+}
+
+var default_mapping map[string]string = map[string]string{"*": "default_db"}
+
+var DefaultConf GConfig = GConfig{
+	BatchMaxDuration: 60000,
+	BatchSize:        5000,
+	Topics:           []string{"telegraf_*"},
+	RefreshTopics:    300000,
+	Mapping:          []map[string]string{default_mapping},
+	Influxdb:         influxdb_default_conf,
+	Kafka:            kafka_default_conf,
 }
 
 func normalize(s string) string {
@@ -72,34 +134,27 @@ func normalize(s string) string {
 
 func (conf *GConfig) check() error {
 
-	if conf.BatchSize == 0 {
-		conf.BatchSize = 5000
+	if conf.Influxdb.Auth {
+		if len(conf.Influxdb.Username) == 0 {
+			conf.Influxdb.Username = conf.Influxdb.AdminUsername
+			conf.Influxdb.Password = conf.Influxdb.AdminPassword
+		}
+		if len(conf.Influxdb.AdminUsername) == 0 {
+			conf.Influxdb.AdminUsername = conf.Influxdb.Username
+			conf.Influxdb.AdminPassword = conf.Influxdb.Password
+		}
 	}
 
-	if conf.Influxdb.Timeout == 0 {
-		conf.Influxdb.Timeout = 5000
-	}
-
-	if len(conf.Influxdb.Precision) == 0 {
-		conf.Influxdb.Precision = "ns"
-	}
-	conf.Influxdb.Precision = normalize(conf.Influxdb.Precision)
-
-	if len(conf.Kafka.ClientID) == 0 {
-		conf.Kafka.ClientID = "kafka2influx"
-	}
-	if len(conf.Kafka.ConsumerGroup) == 0 {
-		conf.Kafka.ConsumerGroup = "kafka2influx-cg"
-	}
-
-	if len(conf.Kafka.Version) == 0 {
-		conf.Kafka.Version = "0.8.2"
-	}
-
-	if len(conf.Kafka.Format) == 0 {
-		conf.Kafka.Format = "json"
-	}
 	conf.Kafka.Format = normalize(conf.Kafka.Format)
+	conf.Kafka.ClientID = strings.Trim(conf.Kafka.ClientID, " ")
+	conf.Kafka.ConsumerGroup = strings.Trim(conf.Kafka.ConsumerGroup, " ")
+	conf.Kafka.Version = strings.Trim(conf.Kafka.Version, " ")
+	conf.Kafka.SASL.Username = strings.Trim(conf.Kafka.SASL.Username, " ")
+	conf.Influxdb.Host = strings.Trim(conf.Influxdb.Host, " ")
+	conf.Influxdb.Precision = normalize(conf.Influxdb.Precision)
+	conf.Influxdb.Username = strings.Trim(conf.Influxdb.Username, " ")
+	conf.Influxdb.AdminUsername = strings.Trim(conf.Influxdb.AdminUsername, " ")
+	conf.Influxdb.RetentionPolicy = strings.Trim(conf.Influxdb.RetentionPolicy, " ")
 
 	numbers_s := strings.Split(conf.Kafka.Version, ".")
 	for _, number_s := range numbers_s {
@@ -128,26 +183,23 @@ func (conf *GConfig) check() error {
 	}
 
 	if len(conf.Topics) == 0 {
-		return fmt.Errorf("Provide a list of kafka topics")
+		return fmt.Errorf("Provide a list of kafka topics to consume from")
 	}
 
 	if len(conf.Kafka.Brokers) == 0 {
-		return fmt.Errorf("Provide a list of Kafka brokers")
-	}
-
-	if _, ok := conf.Databases["default"]; !ok {
-		return fmt.Errorf("Provide a default InfluxDB database")
-	}
-
-	if len(conf.Databases["default"]) == 0 {
-		return fmt.Errorf("Provide a default InfluxDB database")
+		return fmt.Errorf("Provide a list of Kafka brokers to connect to")
 	}
 
 	if conf.BatchSize > math.MaxInt32 {
 		return fmt.Errorf("BatchSize %d is too big. Max = %d", conf.BatchSize, math.MaxInt32)
 	}
-	if conf.Influxdb.Auth && (len(conf.Influxdb.Username) == 0 || len(conf.Influxdb.Password) == 0) {
-		return fmt.Errorf("InfluxDB authentication is requested but username or password is empty")
+	if conf.Influxdb.Auth {
+		if len(conf.Influxdb.Username) == 0 || len(conf.Influxdb.Password) == 0 {
+			return fmt.Errorf("InfluxDB authentication is requested but username or password is empty")
+		}
+		if conf.Influxdb.CreateDatabases && (len(conf.Influxdb.AdminUsername) == 0 || len(conf.Influxdb.AdminPassword) == 0) {
+			return fmt.Errorf("InfluxDB authentication is requested, should create InfluxDB databases, but admin username or password is empty")
+		}
 	}
 	if !strings.HasPrefix(conf.Influxdb.Host, "http://") {
 		return fmt.Errorf("Incorrect format for InfluxDB host")
@@ -169,31 +221,10 @@ func (conf *GConfig) check() error {
 }
 
 func (conf *GConfig) String() string {
-	s := ""
-	s += fmt.Sprintf("Batch size: %d\n", conf.BatchSize)
-	s += "\nInfluxDB\n========\n"
-	s += fmt.Sprintf("InfluxDB host: %s\n", conf.Influxdb.Host)
-	s += fmt.Sprintf("InfluxDB precision: %s\n", conf.Influxdb.Precision)
-	s += fmt.Sprintf("InfluxDB with authentication: %t\n", conf.Influxdb.Auth)
-	if conf.Influxdb.Auth {
-		s += fmt.Sprintf("InfluxDB username: %s\n", conf.Influxdb.Username)
-		s += fmt.Sprintf("InfluxDB password: %s\n", conf.Influxdb.Password)
-	}
-	s += "\nKafka\n=====\n"
-	s += fmt.Sprintf("Topics glob: %s\n", conf.Topics)
-	s += fmt.Sprintf("Kafka brokers: %s\n", strings.Join(conf.Kafka.Brokers, ", "))
-	s += fmt.Sprintf("Kafka client ID: %s\n", conf.Kafka.ClientID)
-	s += fmt.Sprintf("Kafka consumer group: %s\n", conf.Kafka.ConsumerGroup)
-	s += fmt.Sprintf("Kafka messages format: %s\n", conf.Kafka.Format)
-	s += fmt.Sprintf("Kafka Version: %s\n", conf.Kafka.Version)
-	s += "\nTopics => Database\n==================\n"
-	for topic, dbname := range conf.Databases {
-		s += fmt.Sprintf("%s => %s\n", topic, dbname)
-	}
-	return s
+	return conf.export()
 }
 
-func (conf *GConfig) getInfluxHTTPConfig() (influx.HTTPConfig, error) {
+func (conf *GConfig) getInfluxHTTPConfig(admin bool) (influx.HTTPConfig, error) {
 	var tlsConfigPtr *tls.Config = nil
 	var err error
 
@@ -210,10 +241,19 @@ func (conf *GConfig) getInfluxHTTPConfig() (influx.HTTPConfig, error) {
 	}
 
 	if conf.Influxdb.Auth {
+		username := ""
+		password := ""
+		if admin {
+			username = conf.Influxdb.AdminUsername
+			password = strings.Replace(conf.Influxdb.AdminPassword, `'`, `\'`, -1)
+		} else {
+			username = conf.Influxdb.Username
+			password = strings.Replace(conf.Influxdb.Password, `'`, `\'`, -1)
+		}
 		return influx.HTTPConfig{
 			Addr:               conf.Influxdb.Host,
-			Username:           conf.Influxdb.Username,
-			Password:           conf.Influxdb.Password,
+			Username:           username,
+			Password:           password,
 			Timeout:            time.Duration(conf.Influxdb.Timeout) * time.Millisecond,
 			InsecureSkipVerify: conf.Influxdb.TLS.InsecureSkipVerify,
 			TLSConfig:          tlsConfigPtr,
@@ -239,7 +279,7 @@ func (c *GConfig) getSaramaConf() (*sarama.Config, error) {
 	conf.Consumer.MaxWaitTime = 500 * time.Millisecond
 	conf.ClientID = c.Kafka.ClientID
 	conf.Version = c.Kafka.cVersion
-	conf.ChannelBufferSize = int(c.BatchSize)
+	conf.ChannelBufferSize = 2 * int(c.BatchSize)
 
 	if c.Kafka.TLS.Enable {
 		tlsConfigPtr, err = GetTLSConfig(
@@ -276,10 +316,66 @@ func (c *GConfig) getSaramaClusterConf() (*cluster.Config, error) {
 	return cluster_conf, nil
 }
 
-func (c *GConfig) topic2dbname(topic string) string {
-	if dbname, ok := c.Databases[topic]; ok {
-		return dbname
-	} else {
-		return c.Databases["default"]
+var cache_topic2_dbname map[string]string = map[string]string{}
+
+func (c *GConfig) listTargetDatabases(topics []string) []string {
+	dbnames_map := map[string]bool{}
+	for _, topic := range topics {
+		dbnames_map[c.topic2dbname(topic)] = true
 	}
+	dbnames := []string{}
+	for dbname, _ := range dbnames_map {
+		dbnames = append(dbnames, dbname)
+	}
+	return dbnames
+}
+
+func (c *GConfig) topic2dbname(topic string) string {
+
+	if dbname, ok := cache_topic2_dbname[topic]; ok {
+		return dbname
+	}
+	for _, mapping := range c.Mapping {
+		topic_glob := ""
+		dbname := ""
+		for k, v := range mapping {
+			topic_glob = k
+			dbname = v
+		}
+
+		g := glob.MustCompile(topic_glob)
+		if g.Match(topic) {
+			if len(dbname) > 0 {
+				cache_topic2_dbname[topic] = dbname
+				return dbname
+			}
+			cache_topic2_dbname[topic] = topic
+			return topic
+		}
+	}
+	cache_topic2_dbname[topic] = topic
+	return topic
+}
+
+func (c *GConfig) export() string {
+	buf := new(bytes.Buffer)
+	encoder := toml.NewEncoder(buf)
+	encoder.Encode(*c)
+	return buf.String()
+}
+
+func ReadConfig(filename string) (*GConfig, error) {
+	var config GConfig = DefaultConf
+	b, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	if !utf8.Valid(b) {
+		return nil, fmt.Errorf("%s is not a properly utf-8 encoded file", filename)
+	}
+	_, parse_err := toml.Decode(string(b), &config)
+	if parse_err != nil {
+		return nil, parse_err
+	}
+	return &config, nil
 }

@@ -3,21 +3,18 @@ batch_size = 5000
 
 [influxdb]
 host = "http://influxdb:8086"
-auth = false
-username = ""
-password = ""
 precision = "s"
 
-[databases]
-telegraf_onetopic                    = "generic"
-telegraf_anothertopic                = "generic"
-telegraf_pgsql                       = "dbms"
-telegraf_mysql                       = "dbms"
-telegraf_ldap                        = "dbms"
-telegraf_webmail                     = "web"
-telegraf_vmail                       = "mail"
-telegraf_photoapp                    = "web"
-default                              = "generic"
+[[mapping]]
+onetopic                             = "generic"
+[[mapping]]
+anothertopic                         = "generic"
+[[mapping]]
+"*pgsql*"                            = "dbms"
+[[mapping]]
+"*webmail*"                          = "web"
+[[mapping]]
+"*"                                  = "generic"
 
 [kafka]
 brokers = ["kafka1:9092", "kafka2:9092", "kafka3:9092"]

@@ -2,16 +2,12 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log/syslog"
 	"os"
-	"unicode/utf8"
 
-	"github.com/BurntSushi/toml"
 	"github.com/Sirupsen/logrus"
 	logrus_syslog "github.com/Sirupsen/logrus/hooks/syslog"
 	"github.com/alecthomas/kingpin"
-	influx "github.com/influxdata/influxdb/client/v2"
 )
 
 var log *logrus.Logger
@@ -25,49 +21,50 @@ var (
 	config_fname     = kapp.Flag("config", "configuration filename").Default("/etc/kafka2influx/kafka2influx.toml").String()
 	syslog_flag      = kapp.Flag("syslog", "send logs to local syslog").Default("false").Bool()
 	check_topics_cmd = kapp.Command("check-topics", "Print which topics in Kafka will be pulled")
-	print_conf_cmd   = kapp.Command("print-config", "print configuration")
+	default_conf_cmd = kapp.Command("default-config", "print default configuration")
 	check_conf_cmd   = kapp.Command("check-config", "check configuration")
+	ping_influx_cmd  = kapp.Command("ping-influxdb", "check connection to influxdb")
 	start_cmd        = kapp.Command("start", "start influx2kafka")
 )
 
-func createDatabase(dbname string, client influx.Client) (err error) {
-	q := influx.NewQuery(fmt.Sprintf("CREATE DATABASE %s", dbname), "", "")
-	_, err = client.Query(q)
-	return err
-}
-
-func getConfig(filename string) (*GConfig, error) {
-	var config GConfig
-	b, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-	if !utf8.Valid(b) {
-		return nil, fmt.Errorf("%s is not a properly utf-8 encoded file", filename)
-	}
-	_, parse_err := toml.Decode(string(b), &config)
-	if parse_err != nil {
-		return nil, parse_err
-	}
-	return &config, nil
-}
-
 func main() {
 	cmd := kingpin.MustParse(kapp.Parse(os.Args[1:]))
-	config_ptr, err := getConfig(*config_fname)
-	if err != nil {
-		log.WithField("error", err).Fatal("Failed to read configuration file")
-	}
-
-	app := Kafka2InfluxdbApp{conf: config_ptr}
 
 	switch cmd {
 
-	case start_cmd.FullCommand():
-		err = app.conf.check()
+	case ping_influx_cmd.FullCommand():
+		config_ptr, err := ReadConfig(*config_fname)
+		if err != nil {
+			log.WithError(err).Fatal("Failed to read configuration file")
+		}
+		err = config_ptr.check()
 		if err != nil {
 			log.WithError(err).Fatal("Incorrect configuration")
 		}
+		app := Kafka2InfluxdbApp{conf: config_ptr}
+		version, dbnames, users, err := app.pingInfluxDB()
+		if err != nil {
+			log.WithError(err).Fatal("Ping InfluxDB failed")
+		}
+		fmt.Printf("InfluxDB version %s\n", version)
+		fmt.Println("\nExisting databases:")
+		for _, dbname := range dbnames {
+			fmt.Printf("- %s\n", dbname)
+		}
+		fmt.Println("\nExisting users:")
+		for _, user := range users {
+			fmt.Printf("- %s\n", user)
+		}
+	case start_cmd.FullCommand():
+		config_ptr, err := ReadConfig(*config_fname)
+		if err != nil {
+			log.WithField("error", err).Fatal("Failed to read configuration file")
+		}
+		err = config_ptr.check()
+		if err != nil {
+			log.WithError(err).Fatal("Incorrect configuration")
+		}
+
 		if *syslog_flag {
 			hook, err := logrus_syslog.NewSyslogHook("", "", syslog.LOG_INFO, "")
 			if err == nil {
@@ -78,19 +75,42 @@ func main() {
 			}
 		}
 
-		total_count, err := app.consume()
-		log.Info("Shutting down")
-		log.WithField("total_count", total_count).Info("Total number of points fetched from Kafka")
+		app := Kafka2InfluxdbApp{conf: config_ptr}
+
+		_, _, _, err = app.pingInfluxDB()
 		if err != nil {
-			log.WithError(err).Fatal("Error happened when processing")
+			log.WithError(err).Fatal("Ping InfluxDB failed")
 		}
 
+		var total_count uint64 = 0
+		var count uint64 = 0
+		restart := true
+
+		for restart {
+			count, err, restart = app.consume()
+			total_count += count
+			count = 0
+			if err != nil {
+				restart = false
+				log.WithError(err).Error("Error while consuming")
+			}
+		}
+
+		log.Info("Shutting down")
+		log.WithField("total_count", total_count).Info("Total number of points fetched from Kafka")
+
 	case check_topics_cmd.FullCommand():
-		err = app.conf.check()
+		config_ptr, err := ReadConfig(*config_fname)
+		if err != nil {
+			log.WithField("error", err).Fatal("Failed to read configuration file")
+		}
+		err = config_ptr.check()
 		if err != nil {
 			log.WithError(err).Fatal("Incorrect configuration")
 		}
-		topics, err := app.getTelegrafTopics()
+
+		app := Kafka2InfluxdbApp{conf: config_ptr}
+		topics, err := app.getSourceKafkaTopics()
 		if err != nil {
 			log.WithError(err).Fatal("Error while fetching topics from Kafka")
 		}
@@ -102,20 +122,21 @@ func main() {
 			log.Fatal("No topic match your topic glob")
 		}
 
-	case print_conf_cmd.FullCommand():
-		fmt.Printf("Configuration file: %s\n\n", *config_fname)
-		err = app.conf.check()
-		if err != nil {
-			log.WithError(err).Fatal("Incorrect configuration")
-		}
-		fmt.Println(app.conf)
-		fmt.Println()
+	case default_conf_cmd.FullCommand():
+		fmt.Println(DefaultConf.export())
 
 	case check_conf_cmd.FullCommand():
-		err = app.conf.check()
+		config_ptr, err := ReadConfig(*config_fname)
+		if err != nil {
+			log.WithField("error", err).Fatal("Failed to read configuration file")
+		}
+		err = config_ptr.check()
 		if err != nil {
 			log.WithError(err).Fatal("Incorrect configuration")
 		}
-		fmt.Println("OK!")
+
+		fmt.Println("Configuration looks OK\n")
+		fmt.Println(config_ptr.export())
+
 	}
 }
