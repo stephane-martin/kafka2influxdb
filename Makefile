@@ -12,5 +12,5 @@ build:
 
 install:
 	mkdir -p $(DESTDIR)/usr/bin
-	cp $(GOPATH)/src/github.com/stephane-martin/kafka2influxdb/kafka2influxdb $(DESTDIR)/usr/bin
+	cp $(src_dir)/kafka2influxdb $(DESTDIR)/usr/bin
 
