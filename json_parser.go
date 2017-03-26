@@ -6,7 +6,8 @@ import "reflect"
 import "encoding/json"
 
 import influx "github.com/influxdata/influxdb/client/v2"
-import "github.com/influxdata/influxdb/models" 
+import "github.com/influxdata/influxdb/models"
+import "github.com/hashicorp/errwrap"
 
 const (
 	BOOLEAN MetricValueType = iota
@@ -64,15 +65,15 @@ func parseJsonPoint(message []byte, precision string) (*influx.Point, error) {
 	var point Point
 	err := json.Unmarshal(message, &point)
 	if err != nil {
-		return nil, err
+		return nil, errwrap.Wrapf("Failed to parse the JSON encoded metric from Kafka: {{err}}", err)
 	}
 	t, err := models.SafeCalcTime(point.Timestamp, precision)
 	if err != nil {
-		return nil, err
+		return nil, errwrap.Wrapf("The metric timestamp is out of range", err)
 	}
 	influxPoint, err := influx.NewPoint(point.Name, point.Tags, point.getFields(), t)
 	if err != nil {
-		return nil, err
+		return nil, errwrap.Wrapf("The metric from Kafka is not valid: {{err}}", err)
 	}
 	return influxPoint, nil
 }

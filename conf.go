@@ -17,6 +17,7 @@ import (
 	"github.com/gobwas/glob"
 	influx "github.com/influxdata/influxdb/client/v2"
 	"github.com/hashicorp/go-version"
+	"github.com/hashicorp/errwrap"
 )
 
 type GConfig struct {
@@ -160,13 +161,13 @@ func (conf *GConfig) check() error {
 	for _, number_s := range numbers_s {
 		_, err := strconv.ParseUint(number_s, 10, 8)
 		if err != nil {
-			return fmt.Errorf("Kafka version has improper format")
+			return fmt.Errorf("Kafka version has improper format: %s", conf.Kafka.Version)
 		}
 	}
 
 	v, err := version.NewVersion(conf.Kafka.Version)
 	if err != nil {
-		return fmt.Errorf("Failed to parse Kafka version")
+		return errwrap.Wrapf("Failed to parse Kafka version", err)
 	}
 	v_0_10_1_0, _ := version.NewVersion("0.10.1.0")
 	v_0_10_0_1, _ := version.NewVersion("0.10.0.1")
@@ -246,7 +247,7 @@ func (conf *GConfig) getInfluxHTTPConfig(admin bool) (influx.HTTPConfig, error) 
 			conf.Influxdb.TLS.InsecureSkipVerify,
 		)
 		if err != nil {
-			return influx.HTTPConfig{}, err
+			return influx.HTTPConfig{}, errwrap.Wrapf("Failed to understand InfluxDB TLS configuration: {{err}}", err)
 		}
 	}
 
@@ -299,7 +300,7 @@ func (c *GConfig) getSaramaConf() (*sarama.Config, error) {
 			c.Kafka.TLS.InsecureSkipVerify,
 		)
 		if err != nil {
-			return nil, err
+			return nil, errwrap.Wrapf("Failed to understand Kafka TLS configuration: {{err}}", err)
 		}
 		conf.Net.TLS.Enable = true
 		conf.Net.TLS.Config = tlsConfigPtr
@@ -378,14 +379,14 @@ func ReadConfig(filename string) (*GConfig, error) {
 	var config GConfig = DefaultConf
 	b, err := ioutil.ReadFile(filename)
 	if err != nil {
-		return nil, err
+		return nil, errwrap.Wrapf("Failed to read the configuration file: {{err}}", err)
 	}
 	if !utf8.Valid(b) {
 		return nil, fmt.Errorf("%s is not a properly utf-8 encoded file", filename)
 	}
 	_, parse_err := toml.Decode(string(b), &config)
 	if parse_err != nil {
-		return nil, parse_err
+		return nil, errwrap.Wrapf("Failed to parse the TOML configuration: {{err}}", parse_err)
 	}
 	return &config, nil
 }

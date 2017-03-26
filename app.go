@@ -11,6 +11,7 @@ import (
 	"github.com/Shopify/sarama"
 	cluster "github.com/bsm/sarama-cluster"
 	"github.com/gobwas/glob"
+	"github.com/hashicorp/errwrap"
 	influx "github.com/influxdata/influxdb/client/v2"
 )
 
@@ -23,10 +24,10 @@ func listExistingUsers(client influx.Client) ([]string, error) {
 	users := []string{}
 	response, err := client.Query(q)
 	if err != nil {
-		return users, err
+		return users, errwrap.Wrapf("SHOW USERS failed: {{err}}", err)
 	}
 	if response.Error() != nil {
-		return users, response.Error()
+		return users, errwrap.Wrapf("SHOW USERS failed: {{err}}", response.Error())
 	}
 	vals := response.Results[0].Series[0].Values
 	for _, val := range vals {
@@ -40,10 +41,10 @@ func listExistingDatabases(client influx.Client) ([]string, error) {
 	databases := []string{}
 	response, err := client.Query(q)
 	if err != nil {
-		return databases, err
+		return databases, errwrap.Wrapf("SHOW DATABASES failed: {{err}}", err)
 	}
 	if response.Error() != nil {
-		return databases, response.Error()
+		return databases, errwrap.Wrapf("SHOW DATABASES failed: {{err}}", response.Error())
 	}
 	vals := response.Results[0].Series[0].Values
 	for _, val := range vals {
@@ -148,13 +149,13 @@ func (app *Kafka2InfluxdbApp) createWriteUser() error {
 				WithField("username", app.conf.Influxdb.Username).
 				WithField("function", "createWriteUser").
 				Error("Error creating user in InfluxDB")
-			return err
+			return errwrap.Wrapf("Failed to create user in InfluxDB: {{err}}", err)
 		} else if resp.Error() != nil {
 			log.WithError(resp.Error()).
 				WithField("username", app.conf.Influxdb.Username).
 				WithField("function", "createWriteUser").
 				Error("Error creating user in InfluxDB")
-			return resp.Error()
+			return errwrap.Wrapf("Failed to create user in InfluxDB: {{err}}", resp.Error())
 		} else {
 			log.WithField("username", app.conf.Influxdb.Username).
 				Info("Created user in InfluxDB")
@@ -211,9 +212,9 @@ func (app *Kafka2InfluxdbApp) createDatabases(topics []string) error {
 		q := influx.NewQuery(fmt.Sprintf("CREATE DATABASE %s", dbname), "", "")
 		resp, err := client.Query(q)
 		if err != nil {
-			return err
+			return errwrap.Wrapf("CREATE DATABASE failed: {{err}}", err)
 		} else if resp.Error() != nil {
-			return resp.Error()
+			return errwrap.Wrapf("CREATE DATABASE failed: {{err}}", resp.Error())
 		}
 		return nil
 	}
@@ -375,7 +376,7 @@ func (app *Kafka2InfluxdbApp) checkDatabases(topics []string) (err error) {
 		return nil
 	}
 	for _, dbname := range dbnames_error {
-		log.WithField("database", dbname).Error("Error connecting to database")
+		log.WithField("database", dbname).Error("Not enough rights on an InfluxDB database")
 	}
 	return fmt.Errorf("Error connecting to some databases")
 }
@@ -394,12 +395,12 @@ func (app *Kafka2InfluxdbApp) getSourceKafkaTopics() ([]string, error) {
 	client, err := sarama.NewClient(app.conf.Kafka.Brokers, sarama_conf)
 	if err != nil {
 		log.WithError(err).Error("Error creating the sarama Kafka client")
-		return selected_topics, err
+		return selected_topics, errwrap.Wrapf("Failed to create the Kafka client: {{err}}", err)
 	}
 	consumer, err = sarama.NewConsumerFromClient(client)
 	if err != nil {
 		log.WithError(err).Error("Error creating the sarama Kafka consumer")
-		return selected_topics, err
+		return selected_topics, errwrap.Wrapf("Failed to create the Kafka consumer: {{err}}", err)
 	}
 
 	defer func() {
@@ -417,7 +418,7 @@ func (app *Kafka2InfluxdbApp) getSourceKafkaTopics() ([]string, error) {
 
 	alltopics, err := consumer.Topics()
 	if err != nil {
-		return selected_topics, err
+		return selected_topics, errwrap.Wrapf("Failed to retrieve Topics names from Kafka: {{err}}", err)
 	}
 
 	for _, topic_glob := range app.conf.Topics {
@@ -441,18 +442,15 @@ func (app *Kafka2InfluxdbApp) getSourceKafkaTopics() ([]string, error) {
 func (app *Kafka2InfluxdbApp) process(pack []*sarama.ConsumerMessage) (err error) {
 	config, err := app.conf.getInfluxHTTPConfig(false)
 	if err != nil {
-		log.WithError(err).
-			WithField("action", "creating TLS configuration").
-			WithField("function", "process").
-			Error("Error when reading TLS configuration for InfluxDB")
+		return err
 	}
 
 	client, err := influx.NewHTTPClient(config)
 	if err != nil {
-		log.WithError(err).Error("Error connecting to InfluxDB")
-		return err
+		return errwrap.Wrapf("Failed to create the InfluxDB client: {{err}}", err)
 	}
 	defer client.Close()
+
 	log.WithField("nb_points", len(pack)).Info("Points to push to InfluxDB")
 	topicBatchMap := map[string]influx.BatchPoints{}
 
@@ -484,7 +482,7 @@ func (app *Kafka2InfluxdbApp) process(pack []*sarama.ConsumerMessage) (err error
 		} else {
 			log.WithError(err).
 				WithField("message", msg.Value).
-				Error("error happened when parsing a point from JSON")
+				Error("error happened when parsing a metric")
 		}
 	}
 	for topic, bp := range topicBatchMap {
@@ -498,7 +496,7 @@ func (app *Kafka2InfluxdbApp) process(pack []*sarama.ConsumerMessage) (err error
 					WithField("database", dbname).
 					WithField("topic", topic).
 					Error("Error happened when writing points to InfluxDB")
-				return err
+				return errwrap.Wrapf("Writing points to InfluxDB failed: {{err}}", err)
 			} else {
 				log.WithField("nb_points", l).
 					WithField("database", dbname).
@@ -571,7 +569,8 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, restart 
 	consumer, err := cluster.NewConsumer(app.conf.Kafka.Brokers, app.conf.Kafka.ConsumerGroup, topics, sarama_conf)
 	if err != nil {
 		log.WithError(err).Error("Error creating the Kafka consumer")
-		return
+		err = errwrap.Wrapf("Failed to create the Kafka consumer: {{err}}", err)
+		return 0, err, false
 	}
 	defer consumer.Close()
 
