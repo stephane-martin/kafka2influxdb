@@ -1,0 +1,13 @@
+Source: kafka2influxdb
+Section: net
+Priority: optional
+Maintainer: Stephane Martin <stephane.martin@vesperal.eu>
+Build-Depends: debhelper (>= 9)
+Standards-Version: 3.9.5
+Homepage: https://github.com/stephane-martin/kafka2influxdb
+
+Package: kafka2influxdb
+Architecture: amd64
+Pre-Depends: dpkg
+Description: Pull metrics from Kafka topics and push them into InfluxDB
+

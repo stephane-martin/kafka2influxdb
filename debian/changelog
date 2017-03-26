@@ -1,0 +1,5 @@
+kafka2influxdb (0.1) UNRELEASED; urgency=medium
+
+  * Initial release. (Closes: #XXXXXX)
+
+ -- Stephane Martin <stephane.martin@vesperal.eu>  Sun, 26 Mar 2017 01:51:49 +0100
