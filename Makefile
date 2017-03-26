@@ -18,3 +18,5 @@ clean:
 	rm -f $(src_dir)/kafka2influxdb
 	rm -rf /tmp/kafka2influxdb
 
+distclean: clean
+
