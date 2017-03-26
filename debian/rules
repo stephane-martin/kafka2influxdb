@@ -1,17 +1,9 @@
 #!/usr/bin/make -f
 # -*- makefile -*-
-mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
-rules_dir := $(abspath $(notdir $(patsubst %/,%,$(dir $(mkfile_path)))))
-src_dir := $(shell dirname $(rules_dir))
-GOPATH := /tmp/kafka2influxdb/_build
-GO := GOPATH=$(GOPATH) go
 
 #export DH_VERBOSE=1
 
 %:
 	dh $@
 
-override_dh_auto_clean:
-	dh_clean
-	rm -rf /tmp/kafka2influxdb
 

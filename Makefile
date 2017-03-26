@@ -14,3 +14,7 @@ install:
 	mkdir -p $(DESTDIR)/usr/bin
 	cp $(src_dir)/kafka2influxdb $(DESTDIR)/usr/bin
 
+clean:
+	rm -f $(src_dir)/kafka2influxdb
+	rm -rf /tmp/kafka2influxdb
+
