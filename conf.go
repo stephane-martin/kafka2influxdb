@@ -16,7 +16,7 @@ import (
 	cluster "github.com/bsm/sarama-cluster"
 	"github.com/gobwas/glob"
 	influx "github.com/influxdata/influxdb/client/v2"
-	vutils "github.com/mcuadros/go-version"
+	"github.com/hashicorp/go-version"
 )
 
 type GConfig struct {
@@ -164,15 +164,25 @@ func (conf *GConfig) check() error {
 		}
 	}
 
-	if vutils.CompareSimple(conf.Kafka.Version, "0.10.1.0") >= 0 {
+	v, err := version.NewVersion(conf.Kafka.Version)
+	if err != nil {
+		return fmt.Errorf("Failed to parse Kafka version")
+	}
+	v_0_10_1_0, _ := version.NewVersion("0.10.1.0")
+	v_0_10_0_1, _ := version.NewVersion("0.10.0.1")
+	v_0_10_0_0, _ := version.NewVersion("0.10.0.0")
+	v_0_9_0_1, _ := version.NewVersion("0.9.0.1")
+	v_0_9_0_0, _ := version.NewVersion("0.9.0.0")
+
+	if v.Compare(v_0_10_1_0) >= 0 {
 		conf.Kafka.cVersion = sarama.V0_10_1_0
-	} else if vutils.CompareSimple(conf.Kafka.Version, "0.10.0.1") >= 0 {
+	} else if v.Compare(v_0_10_0_1) >= 0 { 
 		conf.Kafka.cVersion = sarama.V0_10_0_1
-	} else if vutils.CompareSimple(conf.Kafka.Version, "0.10.0.0") >= 0 {
+	} else if v.Compare(v_0_10_0_0) >= 0 {
 		conf.Kafka.cVersion = sarama.V0_10_0_0
-	} else if vutils.CompareSimple(conf.Kafka.Version, "0.9.0.1") >= 0 {
+	} else if v.Compare(v_0_9_0_1) >= 0 {
 		conf.Kafka.cVersion = sarama.V0_9_0_1
-	} else if vutils.CompareSimple(conf.Kafka.Version, "0.9.0.0") >= 0 {
+	} else if v.Compare(v_0_9_0_0) >= 0 {
 		conf.Kafka.cVersion = sarama.V0_9_0_0
 	} else {
 		return fmt.Errorf("Kafka is not recent enough. Needs at least 0.9")

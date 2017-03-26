@@ -194,6 +194,18 @@
 			"revisionTime": "2017-02-15T23:32:05Z"
 		},
 		{
+			"checksumSHA1": "cdOCt0Yb+hdErz8NAQqayxPmRsY=",
+			"path": "github.com/hashicorp/errwrap",
+			"revision": "7554cd9344cec97297fa6649b055a8c98c2a1e55",
+			"revisionTime": "2014-10-28T05:47:10Z"
+		},
+		{
+			"checksumSHA1": "tUGxc7rfX0cmhOOUDhMuAZ9rWsA=",
+			"path": "github.com/hashicorp/go-version",
+			"revision": "03c5bf6be031b6dd45afec16b1cf94fc8938bc77",
+			"revisionTime": "2017-02-02T08:07:59Z"
+		},
+		{
 			"checksumSHA1": "7TZuuRIIoAFwh1byFKG3C4TECTc=",
 			"path": "github.com/influxdata/influxdb",
 			"revision": "1bcf3ae74c6b9c4897dab68d513d056277eb24f7",
@@ -219,12 +231,6 @@
 			"path": "github.com/klauspost/crc32",
 			"revision": "1bab8b35b6bb565f92cbc97939610af9369f942a",
 			"revisionTime": "2017-02-10T14:05:23Z"
-		},
-		{
-			"checksumSHA1": "wf7QK5pRmd4/NORvkMK7uflvcO0=",
-			"path": "github.com/mcuadros/go-version",
-			"revision": "257f7b9a7d87427c8d7f89469a5958d57f8abd7c",
-			"revisionTime": "2016-11-05T18:36:18Z"
 		},
 		{
 			"checksumSHA1": "VEKA/pSlr05aqPnIVAfVjUJVFLc=",
