@@ -1,7 +1,7 @@
 # Motivation
 
-InfluxDB is a time-series database. You can typically store metrics about your
-servers and applications in InfluxDB.
+[InfluxDB](https://github.com/influxdata/influxdb) is a time-series database.
+You can typically store metrics about your servers and applications in InfluxDB.
 
 [Telegraf](https://github.com/influxdata/telegraf) can be used to collect
 various metrics. With Telegraf, you could directly write collected metrics to
@@ -16,7 +16,7 @@ However, an indirection may be useful between Telegraf and InfluxDB.
 -   You'd like to perform real-time stream processing on the metrics before
     they reach InfluxDB
 
-In that case, Telegraf can push the metrics to a Kafka cluster.
+In that case, Telegraf [can push the metrics to a Kafka cluster](https://github.com/influxdata/telegraf/tree/master/plugins/outputs/kafka).
 
 kafka2finfluxdb provides a simple way to pull the metrics from Kafka and push
 them to InfluxDB.
