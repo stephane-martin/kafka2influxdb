@@ -31,6 +31,11 @@ The dependencies are vendored.
 
 See [the configuration example](https://github.com/stephane-martin/kafka2influxdb/blob/master/kafka2influxdb.example.toml).
 
+The configuration directory can be specified by a commandline flag
+`--config=XXX` (it defaults to `/etc/kafka2influxdb`).
+
+In that directory, the configuration filename must be `kafka2influxdb.toml`.
+
 # Running
 
 See `kafka2influxdb --help`.
@@ -38,6 +43,5 @@ See `kafka2influxdb --help`.
 kafka2influxdb uses a Kafka consumer group. Throughput may be increased by
 running multiple instances of kafka2influxdb. In that case, the Kafka
 partitions will be devided between the instances.
-
 
 
