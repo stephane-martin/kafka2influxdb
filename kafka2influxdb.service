@@ -13,7 +13,7 @@ ProtectSystem=full
 ProtectHome=true
 NoNewPrivileges=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-ExecStart=/usr/bin/kafka2influxdb start --logfile=/var/log/kafka2influxdb/kafka2influxdb.log
+ExecStart=/usr/local/bin/kafka2influxdb start --logfile=/var/log/kafka2influxdb/kafka2influxdb.log
 KillMode=process
 KillSignal=SIGTERM
 TimeoutSec=5

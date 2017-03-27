@@ -22,7 +22,16 @@ clean:
 
 distclean: clean
 
+deb: manpage
+	if ! dpkg -s devscripts > /dev/null 2>&1 ; then sudo apt-get install devscripts; fi
+	if ! dpkg -s dh-systemd > /dev/null 2>&1 ; then sudo apt-get install dh-systemd; fi
+	cp $(src_dir)/kafka2influxdb.1 $(src_dir)/debian
+	dpkg-buildpackage -us -uc -b
 
-.PHONY: build install clean distclean
+manpage:
+	pandoc $(src_dir)/manpage.md -s -t man -o $(src_dir)/kafka2influxdb.1
+
+.PHONY: build install clean distclean deb bindata manpage
+
 DEFAULT_GOAL := build
 
