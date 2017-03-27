@@ -22,60 +22,60 @@ import (
 )
 
 type GConfig struct {
-	BatchSize        uint32              `mapstructure:"batch_size"`
-	BatchMaxDuration uint32              `mapstructure:"batch_max_duration"`
-	Topics           []string            `mapstructure:"topics"`
-	RefreshTopics    uint32              `mapstructure:"refresh_topics"`
-	Influxdb         InfluxdbConf        `mapstructure:"influxdb"`
-	Mapping          []map[string]string `mapstructure:"mapping"`
-	Kafka            KafkaConf           `mapstructure:"kafka"`
+	BatchSize        uint32              `mapstructure:"batch_size" toml:"batch_size"`
+	BatchMaxDuration uint32              `mapstructure:"batch_max_duration" toml:"batch_max_duration"`
+	Topics           []string            `mapstructure:"topics" toml:"topics"`
+	RefreshTopics    uint32              `mapstructure:"refresh_topics" toml:"refresh_topics"`
+	Influxdb         InfluxdbConf        `mapstructure:"influxdb" toml:"influxdb"`
+	Mapping          []map[string]string `mapstructure:"mapping" toml:"mapping"`
+	Kafka            KafkaConf           `mapstructure:"kafka" toml:"kafka"`
 }
 
 type InfluxdbConf struct {
-	Host            string        `mapstructure:"host"`
-	Auth            bool          `mapstructure:"auth"`
-	Username        string        `mapstructure:"username"`
-	Password        string        `mapstructure:"password"`
-	CreateDatabases bool          `mapstructure:"create_databases"`
-	AdminUsername   string        `mapstructure:"admin_username"`
-	AdminPassword   string        `mapstructure:"admin_password"`
-	Precision       string        `mapstructure:"precision"`
-	RetentionPolicy string        `mapstructure:"retention_policy"`
-	Timeout         uint32        `mapstructure:"timeout"`
-	TLS             InfluxTLSConf `mapstructure:"tls"`
+	Host            string        `mapstructure:"host" toml:"host"`
+	Auth            bool          `mapstructure:"auth" toml:"auth"`
+	Username        string        `mapstructure:"username" toml:"username"`
+	Password        string        `mapstructure:"password" toml:"password"`
+	CreateDatabases bool          `mapstructure:"create_databases" toml:"create_databases"`
+	AdminUsername   string        `mapstructure:"admin_username" toml:"admin_username"`
+	AdminPassword   string        `mapstructure:"admin_password" toml:"admin_password"`
+	Precision       string        `mapstructure:"precision" toml:"precision"`
+	RetentionPolicy string        `mapstructure:"retention_policy" toml:"retention_policy"`
+	Timeout         uint32        `mapstructure:"timeout" toml:"timeout"`
+	TLS             InfluxTLSConf `mapstructure:"tls" toml:"tls"`
 }
 
 type InfluxTLSConf struct {
-	Enable               bool   `mapstructure:"enable"`
-	CertificateAuthority string `mapstructure:"certificate_authority"`
-	Certificate          string `mapstructure:"certificate"`
-	PrivateKey           string `mapstructure:"private_key"`
-	InsecureSkipVerify   bool   `mapstructure:"insecure"`
+	Enable               bool   `mapstructure:"enable" toml:"enable"`
+	CertificateAuthority string `mapstructure:"certificate_authority" toml:"certificate_authority"`
+	Certificate          string `mapstructure:"certificate" toml:"certificate"`
+	PrivateKey           string `mapstructure:"private_key" toml:"private_key"`
+	InsecureSkipVerify   bool   `mapstructure:"insecure" toml:"insecure"`
 }
 
 type KafkaConf struct {
-	Brokers       []string `mapstructure: brokers`
-	ClientID      string   `mapstructure:"client_id"`
-	ConsumerGroup string   `mapstructure:"consumer_group"`
-	Version       string   `mapstructure:"version"`
+	Brokers       []string `mapstructure:"brokers" toml:"brokers"`
+	ClientID      string   `mapstructure:"client_id" toml:"client_id"`
+	ConsumerGroup string   `mapstructure:"consumer_group" toml:"consumer_group"`
+	Version       string   `mapstructure:"version" toml:"version"`
 	cVersion      sarama.KafkaVersion
-	TLS           KafkaTLSConf  `mapstructure:"tls"`
-	SASL          KafkaSASLConf `mapstructure:"sasl"`
-	Format        string        `mapstructure:"format"`
+	TLS           KafkaTLSConf  `mapstructure:"tls" toml:"tls"`
+	SASL          KafkaSASLConf `mapstructure:"sasl" toml:"sasl"`
+	Format        string        `mapstructure:"format" toml:"format"`
 }
 
 type KafkaTLSConf struct {
-	Enable               bool   `mapstructure:"enable"`
-	CertificateAuthority string `mapstructure:"certificate_authority"`
-	Certificate          string `mapstructure:"certificate"`
-	PrivateKey           string `mapstructure:"private_key"`
-	InsecureSkipVerify   bool   `mapstructure:"insecure"`
+	Enable               bool   `mapstructure:"enable" toml:"enable"`
+	CertificateAuthority string `mapstructure:"certificate_authority" toml:"certificate_authority"`
+	Certificate          string `mapstructure:"certificate" toml:"certificate"`
+	PrivateKey           string `mapstructure:"private_key" toml:"private_key"`
+	InsecureSkipVerify   bool   `mapstructure:"insecure" toml:"insecure"`
 }
 
 type KafkaSASLConf struct {
-	Enable   bool   `mapstructure:"enable"`
-	Username string `mapstructure:"username"`
-	Password string `mapstructure:"password"`
+	Enable   bool   `mapstructure:"enable" toml:"enable"`
+	Username string `mapstructure:"username" toml:"username"`
+	Password string `mapstructure:"password" toml:"password"`
 }
 
 var influxdb_default_conf InfluxdbConf = InfluxdbConf{
