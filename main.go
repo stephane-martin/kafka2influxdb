@@ -20,6 +20,7 @@ var (
 	kapp             = kingpin.New("kafka2influxdb", "Get metrics from Kafka and push them to InfluxDB")
 	config_fname     = kapp.Flag("config", "configuration directory").Default("/etc/kafka2influxdb").String()
 	syslog_flag      = kapp.Flag("syslog", "send logs to local syslog").Default("false").Bool()
+	logfile_flag     = kapp.Flag("logfile", "write logs to some file instead of stdout/stderr").Default("").String()
 	check_topics_cmd = kapp.Command("check-topics", "Print which topics in Kafka will be pulled")
 	default_conf_cmd = kapp.Command("default-config", "print default configuration")
 	check_conf_cmd   = kapp.Command("check-config", "check configuration")
@@ -73,6 +74,15 @@ func main() {
 			} else {
 				log.WithError(err).Error("Unable to connect to local syslog daemon")
 			}
+		}
+
+		if len(*logfile_flag) > 0 {
+			logfile, err := os.OpenFile(*logfile_flag, os.O_WRONLY | os.O_CREATE | os.O_APPEND, 0660)
+			if err != nil {
+				log.WithError(err).WithField("filename", *logfile_flag).Fatal("Failed to open the log file")
+			}
+			defer logfile.Close()
+			log.Out = logfile
 		}
 
 		app := Kafka2InfluxdbApp{conf: config_ptr}

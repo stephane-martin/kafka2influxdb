@@ -4,6 +4,13 @@
 #export DH_VERBOSE=1
 
 %:
-	dh $@
+	dh $@ --with systemd
 
+override_dh_installinit:
+	dh_systemd_enable --no-enable --name=kafka2influxdb kafka2influxdb.service
+	dh_installinit --name=kafka2influxdb --no-start --noscripts
+	dh_systemd_start --no-start
+
+override_dh_systemd_start:
+	echo "Not running dh_systemd_start"
 

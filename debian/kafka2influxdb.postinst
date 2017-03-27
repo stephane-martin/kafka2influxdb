@@ -1,0 +1,16 @@
+#!/bin/sh
+
+set -e
+
+case "$1" in
+    configure)
+        adduser --system --disabled-password --disabled-login --home /nonexistent --no-create-home --quiet --force-badname --group _kafka2influxdb
+        mkdir -p /var/log/kafka2influxdb
+        chown _kafka2influxdb:_kafka2influxdb /var/log/kafka2influxdb
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0
+

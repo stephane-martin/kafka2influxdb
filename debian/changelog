@@ -1,5 +1,8 @@
-kafka2influxdb (0.1) UNRELEASED; urgency=medium
+kafka2influxdb (0.1-4) UNRELEASED; urgency=medium
 
-  * Initial release. (Closes: #XXXXXX)
+  * Initial release.
+  * Install configuration file.
+  * Fix systemd start command.
+  * Write logs to /var/log/kafka2influxdb/kafka2influxdb.log
 
- -- Stephane Martin <stephane.martin@vesperal.eu>  Sun, 26 Mar 2017 01:51:49 +0100
+ -- Stephane Martin <stephane.martin@vesperal.eu>  Mon, 27 Mar 2017 18:17:18 +0200
