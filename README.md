@@ -36,7 +36,7 @@ First install go, then:
 ```
 sudo apt-get install devscripts dh-systemd
 git clone https://github.com/stephane-martin/kafka2influxdb.git"
-cd kafka2influxdb && dpkg-buildpackage -us -ux -b && cd ..
+cd kafka2influxdb && dpkg-buildpackage -us -uc -b && cd ..
 ```
 
 -   The package installs a systemd service (`kafka2influxdb`) but does not enable
