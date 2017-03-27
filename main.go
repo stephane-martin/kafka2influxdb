@@ -18,7 +18,7 @@ func init() {
 
 var (
 	kapp             = kingpin.New("kafka2influxdb", "Get metrics from Kafka and push them to InfluxDB")
-	config_fname     = kapp.Flag("config", "configuration filename").Default("/etc/kafka2influx/kafka2influx.toml").String()
+	config_fname     = kapp.Flag("config", "configuration directory").Default("/etc/kafka2influxdb").String()
 	syslog_flag      = kapp.Flag("syslog", "send logs to local syslog").Default("false").Bool()
 	check_topics_cmd = kapp.Command("check-topics", "Print which topics in Kafka will be pulled")
 	default_conf_cmd = kapp.Command("default-config", "print default configuration")

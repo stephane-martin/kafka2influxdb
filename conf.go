@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
+	//"io/ioutil"
 	"math"
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
+	//"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
 	"github.com/Shopify/sarama"
@@ -18,63 +18,64 @@ import (
 	influx "github.com/influxdata/influxdb/client/v2"
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/errwrap"
+	"github.com/spf13/viper"
 )
 
 type GConfig struct {
-	BatchSize        uint32              `toml:"batch_size"`
-	BatchMaxDuration uint32              `toml:"batch_max_duration"`
-	Topics           []string            `toml:"topics"`
-	RefreshTopics    uint32              `toml:"refresh_topics"`
-	Influxdb         InfluxdbConf        `toml:"influxdb"`
-	Mapping          []map[string]string `toml:"mapping"`
-	Kafka            KafkaConf           `toml:"kafka"`
+	BatchSize        uint32              `mapstructure:"batch_size"`
+	BatchMaxDuration uint32              `mapstructure:"batch_max_duration"`
+	Topics           []string            `mapstructure:"topics"`
+	RefreshTopics    uint32              `mapstructure:"refresh_topics"`
+	Influxdb         InfluxdbConf        `mapstructure:"influxdb"`
+	Mapping          []map[string]string `mapstructure:"mapping"`
+	Kafka            KafkaConf           `mapstructure:"kafka"`
 }
 
 type InfluxdbConf struct {
-	Host            string        `toml:"host"`
-	Auth            bool          `toml:"auth"`
-	Username        string        `toml:"username"`
-	Password        string        `toml:"password"`
-	CreateDatabases bool          `toml:"create_databases"`
-	AdminUsername   string        `toml:"admin_username"`
-	AdminPassword   string        `toml:"admin_password"`
-	Precision       string        `toml:"precision"`
-	RetentionPolicy string        `toml:"retention_policy"`
-	Timeout         uint32        `toml:"timeout"`
-	TLS             InfluxTLSConf `toml:"tls"`
+	Host            string        `mapstructure:"host"`
+	Auth            bool          `mapstructure:"auth"`
+	Username        string        `mapstructure:"username"`
+	Password        string        `mapstructure:"password"`
+	CreateDatabases bool          `mapstructure:"create_databases"`
+	AdminUsername   string        `mapstructure:"admin_username"`
+	AdminPassword   string        `mapstructure:"admin_password"`
+	Precision       string        `mapstructure:"precision"`
+	RetentionPolicy string        `mapstructure:"retention_policy"`
+	Timeout         uint32        `mapstructure:"timeout"`
+	TLS             InfluxTLSConf `mapstructure:"tls"`
 }
 
 type InfluxTLSConf struct {
-	Enable               bool   `toml:"enable"`
-	CertificateAuthority string `toml:"certificate_authority"`
-	Certificate          string `toml:"certificate"`
-	PrivateKey           string `toml:"private_key"`
-	InsecureSkipVerify   bool   `toml:"insecure"`
+	Enable               bool   `mapstructure:"enable"`
+	CertificateAuthority string `mapstructure:"certificate_authority"`
+	Certificate          string `mapstructure:"certificate"`
+	PrivateKey           string `mapstructure:"private_key"`
+	InsecureSkipVerify   bool   `mapstructure:"insecure"`
 }
 
 type KafkaConf struct {
-	Brokers       []string `toml: brokers`
-	ClientID      string   `toml:"client_id"`
-	ConsumerGroup string   `toml:"consumer_group"`
-	Version       string   `toml:"version"`
+	Brokers       []string `mapstructure: brokers`
+	ClientID      string   `mapstructure:"client_id"`
+	ConsumerGroup string   `mapstructure:"consumer_group"`
+	Version       string   `mapstructure:"version"`
 	cVersion      sarama.KafkaVersion
-	TLS           KafkaTLSConf  `toml:"tls"`
-	SASL          KafkaSASLConf `toml:"sasl"`
-	Format        string        `toml:"format"`
+	TLS           KafkaTLSConf  `mapstructure:"tls"`
+	SASL          KafkaSASLConf `mapstructure:"sasl"`
+	Format        string        `mapstructure:"format"`
 }
 
 type KafkaTLSConf struct {
-	Enable               bool   `toml:"enable"`
-	CertificateAuthority string `toml:"certificate_authority"`
-	Certificate          string `toml:"certificate"`
-	PrivateKey           string `toml:"private_key"`
-	InsecureSkipVerify   bool   `toml:"insecure"`
+	Enable               bool   `mapstructure:"enable"`
+	CertificateAuthority string `mapstructure:"certificate_authority"`
+	Certificate          string `mapstructure:"certificate"`
+	PrivateKey           string `mapstructure:"private_key"`
+	InsecureSkipVerify   bool   `mapstructure:"insecure"`
 }
 
 type KafkaSASLConf struct {
-	Enable   bool   `toml:"enable"`
-	Username string `toml:"username"`
-	Password string `toml:"password"`
+	Enable   bool   `mapstructure:"enable"`
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
 }
 
 var influxdb_default_conf InfluxdbConf = InfluxdbConf{
@@ -375,18 +376,17 @@ func (c *GConfig) export() string {
 	return buf.String()
 }
 
-func ReadConfig(filename string) (*GConfig, error) {
+func ReadConfig(directory string) (*GConfig, error) {
 	var config GConfig = DefaultConf
-	b, err := ioutil.ReadFile(filename)
+	viper.SetConfigName("kafka2influxdb")
+	viper.AddConfigPath(directory)
+	err := viper.ReadInConfig()
 	if err != nil {
-		return nil, errwrap.Wrapf("Failed to read the configuration file: {{err}}", err)
+		return nil, err
 	}
-	if !utf8.Valid(b) {
-		return nil, fmt.Errorf("%s is not a properly utf-8 encoded file", filename)
-	}
-	_, parse_err := toml.Decode(string(b), &config)
-	if parse_err != nil {
-		return nil, errwrap.Wrapf("Failed to parse the TOML configuration: {{err}}", parse_err)
+	err = viper.Unmarshal(&config)
+	if err != nil {
+		return nil, err
 	}
 	return &config, nil
 }
