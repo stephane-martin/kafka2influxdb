@@ -22,7 +22,7 @@ clean:
 
 distclean: clean
 
-deb: manpage
+deb:
 	if ! dpkg -s devscripts > /dev/null 2>&1 ; then sudo apt-get install devscripts; fi
 	if ! dpkg -s dh-systemd > /dev/null 2>&1 ; then sudo apt-get install dh-systemd; fi
 	cp -f $(src_dir)/kafka2influxdb.1 $(src_dir)/debian
