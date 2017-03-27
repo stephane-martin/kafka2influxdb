@@ -1,5 +1,6 @@
 package main
 
+import "fmt"
 import "strconv"
 import "strings"
 import "reflect"
@@ -31,6 +32,57 @@ type MetricValue struct {
 	typ     MetricValueType
 }
 
+type Parser interface {
+	Parse(message []byte) (*influx.Point, error)
+}
+
+func NewParser(format string, precision string) (Parser, error) {
+	if format == "json" {
+		return JsonParser{precision: precision}, nil
+	} else if format == "influx" {
+		return LineProtocolParser{precision: precision}, nil
+	} else {
+		return nil, fmt.Errorf("Unknown format for points in Kafka")
+	}
+}
+
+type JsonParser struct {
+	precision string
+}
+
+func (p JsonParser) Parse(message []byte) (*influx.Point, error) {
+	var point Point
+	err := json.Unmarshal(message, &point)
+	if err != nil {
+		return nil, errwrap.Wrapf("Failed to parse the JSON encoded metric from Kafka: {{err}}", err)
+	}
+	t, err := models.SafeCalcTime(point.Timestamp, p.precision)
+	if err != nil {
+		return nil, errwrap.Wrapf("The metric timestamp is out of range", err)
+	}
+	influxPoint, err := influx.NewPoint(point.Name, point.Tags, point.getFields(), t)
+	if err != nil {
+		return nil, errwrap.Wrapf("The metric from Kafka is not valid: {{err}}", err)
+	}
+	return influxPoint, nil
+}
+
+type LineProtocolParser struct {
+	precision string
+}
+
+func (p LineProtocolParser) Parse(message []byte) (*influx.Point, error) {
+	points, err := models.ParsePoints(message)
+	if err != nil {
+		return nil, errwrap.Wrapf("Failed to parse line protocol metric from Kafka: {{err}}", err)
+	}
+	if len(points) >= 1 {
+		return influx.NewPointFrom(points[0]), nil	
+	}
+	return nil, nil
+}
+
+
 func (p *Point) getFields() map[string]interface{} {
 	m := map[string]interface{}{}
 	for k, v := range p.Fields {
@@ -59,23 +111,6 @@ func (p Point) String() string {
 	res += strings.Join(fields, ", ")
 	res += "\n"
 	return res
-}
-
-func parseJsonPoint(message []byte, precision string) (*influx.Point, error) {
-	var point Point
-	err := json.Unmarshal(message, &point)
-	if err != nil {
-		return nil, errwrap.Wrapf("Failed to parse the JSON encoded metric from Kafka: {{err}}", err)
-	}
-	t, err := models.SafeCalcTime(point.Timestamp, precision)
-	if err != nil {
-		return nil, errwrap.Wrapf("The metric timestamp is out of range", err)
-	}
-	influxPoint, err := influx.NewPoint(point.Name, point.Tags, point.getFields(), t)
-	if err != nil {
-		return nil, errwrap.Wrapf("The metric from Kafka is not valid: {{err}}", err)
-	}
-	return influxPoint, nil
 }
 
 func (p MetricValue) String() string {
@@ -152,5 +187,4 @@ func (p *MetricValue) UnmarshalJSON(b []byte) (err error) {
 
 	return err
 }
-
 

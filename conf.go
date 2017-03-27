@@ -123,7 +123,7 @@ var default_mapping map[string]string = map[string]string{"*": "default_db"}
 var DefaultConf GConfig = GConfig{
 	BatchMaxDuration: 60000,
 	BatchSize:        5000,
-	Topics:           []string{"telegraf_*"},
+	Topics:           []string{"metrics_*"},
 	RefreshTopics:    300000,
 	Mapping:          []map[string]string{default_mapping},
 	Influxdb:         influxdb_default_conf,

@@ -454,13 +454,10 @@ func (app *Kafka2InfluxdbApp) process(pack []*sarama.ConsumerMessage) (err error
 	log.WithField("nb_points", len(pack)).Info("Points to push to InfluxDB")
 	topicBatchMap := map[string]influx.BatchPoints{}
 
-	var parse_fun func([]byte, string) (*influx.Point, error)
-	if app.conf.Kafka.Format == "json" {
-		parse_fun = parseJsonPoint
-	} else if app.conf.Kafka.Format == "influx" {
-		parse_fun = parseLineProtocolPoint
-	} else {
-		return fmt.Errorf("Unknown format for points in Kafka")
+
+	parser, err := NewParser(app.conf.Kafka.Format, app.conf.Influxdb.Precision)
+	if err != nil {
+		return err
 	}
 
 	for _, msg := range pack {
@@ -474,7 +471,7 @@ func (app *Kafka2InfluxdbApp) process(pack []*sarama.ConsumerMessage) (err error
 			)
 			topicBatchMap[msg.Topic] = bp
 		}
-		point, err := parse_fun(msg.Value, app.conf.Influxdb.Precision)
+		point, err := parser.Parse(msg.Value)
 		if err == nil {
 			if point != nil {
 				topicBatchMap[msg.Topic].AddPoint(point)
