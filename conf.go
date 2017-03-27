@@ -118,7 +118,7 @@ var kafka_default_conf KafkaConf = KafkaConf{
 	},
 }
 
-var default_mapping map[string]string = map[string]string{"*": "default_db"}
+var default_mapping map[string]string = map[string]string{}
 
 var DefaultConf GConfig = GConfig{
 	BatchMaxDuration: 60000,
@@ -291,7 +291,7 @@ func (c *GConfig) getSaramaConf() (*sarama.Config, error) {
 	conf.Consumer.MaxWaitTime = 500 * time.Millisecond
 	conf.ClientID = c.Kafka.ClientID
 	conf.Version = c.Kafka.cVersion
-	conf.ChannelBufferSize = 2 * int(c.BatchSize)
+	conf.ChannelBufferSize = int(c.BatchSize)
 
 	if c.Kafka.TLS.Enable {
 		tlsConfigPtr, err = GetTLSConfig(

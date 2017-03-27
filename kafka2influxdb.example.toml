@@ -57,7 +57,7 @@ insecure = false
 
 # When a Kafka message will be push to InfluxDB as a measurement, the mappings will be tried in the provided order.
 
-# default mapping: * => "default_db"
+# no default, mandatory
 
 [[mapping]]
 onetopic                             = "generic"
