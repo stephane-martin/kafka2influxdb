@@ -1,0 +1,9 @@
+kafka2influxdb.1
+debian/kafka2influxdb.1
+debian/debhelper-build-stamp
+debian/files
+debian/kafka2influxdb.debhelper.log
+debian/kafka2influxdb.postrm.debhelper
+debian/kafka2influxdb.substvars
+debian/kafka2influxdb/
+
