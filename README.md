@@ -29,9 +29,15 @@ The dependencies are vendored.
 
 # Configuration
 
-See [the configuration example](https://github.com/stephane-martin/kafka2influxdb/blob/master/kafka2influxdb.example.toml)
+See [the configuration example](https://github.com/stephane-martin/kafka2influxdb/blob/master/kafka2influxdb.example.toml).
 
 # Running
 
-See `kafka2influxdb --help`
+See `kafka2influxdb --help`.
+
+kafka2influxdb uses a Kafka consumer group. Throughput may be increased by
+running multiple instances of kafka2influxdb. In that case, the Kafka
+partitions will be devided between the instances.
+
+
 
