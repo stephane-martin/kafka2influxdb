@@ -34,10 +34,11 @@ You can build a package for Debian based distributions (systemd only).
 First install go, then:
 
 ```
-sudo apt-get install devscripts dh-systemd
 git clone https://github.com/stephane-martin/kafka2influxdb.git"
-cd kafka2influxdb && dpkg-buildpackage -us -uc -b && cd ..
+cd kafka2influxdb && make deb && cd ..
 ```
+
+(If needed, it will `sudo` to install `devscripts` and `dh-systemd`.)
 
 -   The package installs a systemd service (`kafka2influxdb`) but does not enable
 it and does not start the service at package installation.
