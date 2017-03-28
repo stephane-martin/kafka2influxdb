@@ -37,7 +37,7 @@ bindata: manpage
 	go-bindata $(src_dir)/kafka2influxdb.service $(src_dir)/kafka2influxdb.1
 
 sync: bindata
-	git add . && git commit && git pull remote master && git push remote master
+	git add . && git commit && git pull origin master && git push origin master
 
 
 

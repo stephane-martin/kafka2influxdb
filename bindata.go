@@ -104,7 +104,7 @@ func homeStefKafka2influx_gopathSrcGithubComStephaneMartinKafka2influxdbKafka2in
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "home/stef/kafka2influx_gopath/src/github.com/stephane-martin/kafka2influxdb/kafka2influxdb.1", size: 1741, mode: os.FileMode(436), modTime: time.Unix(1490735497, 0)}
+	info := bindataFileInfo{name: "home/stef/kafka2influx_gopath/src/github.com/stephane-martin/kafka2influxdb/kafka2influxdb.1", size: 1741, mode: os.FileMode(436), modTime: time.Unix(1490735548, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
