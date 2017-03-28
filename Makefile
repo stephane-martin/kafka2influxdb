@@ -33,7 +33,15 @@ deb:
 manpage:
 	pandoc $(src_dir)/manpage.md -s -t man -o $(src_dir)/kafka2influxdb.1
 
-.PHONY: build install clean distclean deb bindata manpage
+bindata: manpage
+	go-bindata $(src_dir)/kafka2influxdb.service $(src_dir)/kafka2influxdb.1
+
+sync: bindata
+	git add . && git commit && git pull remote master && git push remote master
+
+
+
+.PHONY: build install clean distclean deb bindata manpage bindata sync
 
 DEFAULT_GOAL := build
 
