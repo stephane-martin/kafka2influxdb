@@ -13,7 +13,7 @@ SYNOPSIS
 | **kafka2influxdb** [**--config**=**CONFIGFILE**] **check-topics**
 | **kafka2influxdb** [**--config**=**CONFIGFILE**] **check-config**
 | **kafka2influxdb** [**--config**=**CONFIGFILE**] **ping-influxdb**
-| **kafka2influxdb** [**--config**=**CONFIGFILE**] **start** [**--syslog**] [**--logfile**=**LOGFILE**]
+| **kafka2influxdb** [**--config**=**CONFIGFILE**] **start** [**--syslog**] [**--logfile**=**LOGFILE**] [**--loglevel**=**LOGLEVEL**]
 | **kafka2influxdb** **install** [**--prefix**=**PREFIX**]
 | **kafka2influxdb** **default-config**
 | **kafka2influxdb** **--help**
