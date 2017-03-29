@@ -51,7 +51,7 @@ manpage:
 	pandoc $(src_dir)/manpage.md -s -t man -o $(src_dir)/kafka2influxdb.1
 
 bindata: manpage
-	go-bindata kafka2influxdb.service kafka2influxdb.1
+	go-bindata kafka2influxdb.service kafka2influxdb.upstart kafka2influxdb.1
 
 sync: bindata
 	git add . && git commit && git pull origin master && git push origin master
