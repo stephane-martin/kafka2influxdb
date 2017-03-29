@@ -17,7 +17,7 @@ install:
 	cp $(src_dir)/kafka2influxdb.example.toml $(DESTDIR)/etc/kafka2influxdb/kafka2influxdb.toml
 	if [ -f /sbin/initctl ]; then \
 		mkdir -p $(DESTDIR)/etc/init;\
-		echo "manual" >> /etc/init/kafka2influxdb.override;\
+		echo "manual" >> $(DESTDIR)/etc/init/kafka2influxdb.override;\
 	fi
 clean:
 	rm -f $(src_dir)/$(PROJECT)
