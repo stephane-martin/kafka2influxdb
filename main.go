@@ -1,15 +1,22 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io/ioutil"
 	"log/syslog"
 	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
+	"strconv"
 	"syscall"
+
 	"github.com/Sirupsen/logrus"
 	logrus_syslog "github.com/Sirupsen/logrus/hooks/syslog"
 	"github.com/alecthomas/kingpin"
 	"github.com/facebookgo/pidfile"
+	"github.com/stephane-martin/go-findinit"
 )
 
 var log *logrus.Logger
@@ -112,7 +119,7 @@ func main() {
 			}
 			logfile.Close()
 		}
-		
+
 		app := Kafka2InfluxdbApp{conf: config_ptr}
 
 		// check we can connect to InfluxDB
@@ -121,25 +128,35 @@ func main() {
 			log.WithError(err).Fatal("Ping InfluxDB failed")
 		}
 
-		if (*daemonize_flag) {
+		if *daemonize_flag {
 			// daemon dance
-			
+
 			// lock stdout to avoid a race condition
-			err := syscall.FcntlFlock(os.Stdout.Fd(), syscall.F_SETLKW, &syscall.Flock_t{Type: syscall.F_WRLCK, Whence: 0, Start: 0, Len: 0 })
-			if err != nil { log.WithError(err).Fatal("Failed to lock stdout") }
+			err := syscall.FcntlFlock(os.Stdout.Fd(), syscall.F_SETLKW, &syscall.Flock_t{Type: syscall.F_WRLCK, Whence: 0, Start: 0, Len: 0})
+			if err != nil {
+				log.WithError(err).Fatal("Failed to lock stdout")
+			}
 			if os.Getppid() != 1 {
 				// parent
 				selfpath, err := exec.LookPath(os.Args[0])
-				if err != nil { log.WithError(err).Fatal("Failed to lookup binary") }
+				if err != nil {
+					log.WithError(err).Fatal("Failed to lookup binary")
+				}
 				_, err = os.StartProcess(selfpath, os.Args, &os.ProcAttr{Dir: "", Env: nil, Files: []*os.File{os.Stdin, os.Stdout, os.Stderr}, Sys: nil})
-				if err != nil { log.WithError(err).Fatal("Failed to start process") }
+				if err != nil {
+					log.WithError(err).Fatal("Failed to start process")
+				}
 				os.Exit(0)
 			} else {
 				// child
 				_, err := syscall.Setsid()
-				if err != nil { log.WithError(err).Fatal("Failed to create new session") }
+				if err != nil {
+					log.WithError(err).Fatal("Failed to create new session")
+				}
 				devnullfile, err := os.OpenFile("/dev/null", os.O_RDWR, 0)
-				if err != nil { log.WithError(err).Fatal("Failed to open /dev/null") }
+				if err != nil {
+					log.WithError(err).Fatal("Failed to open /dev/null")
+				}
 				syscall.Dup2(int(devnullfile.Fd()), int(os.Stdin.Fd()))
 				syscall.Dup2(int(devnullfile.Fd()), int(os.Stdout.Fd()))
 				syscall.Dup2(int(devnullfile.Fd()), int(os.Stderr.Fd()))
@@ -188,7 +205,167 @@ func main() {
 		fmt.Println(config_ptr.export())
 
 	case install_cmd.FullCommand():
-		// todo: copy executable, man page and init service
+		if !filepath.IsAbs(*prefix_flag) {
+			log.WithField("prefix", *prefix_flag).Fatal("prefix is not absolute")
+		}
+
+		user_id := "_kafka2influxdb"
+		group_id := "_kafka2influxdb"
+		log_path := "/var/log/kafka2influxdb"
+
+		g, err := user.LookupGroup(group_id)
+		if _, ok := err.(user.UnknownGroupError); ok {
+			o, err := exec.Command("groupadd", "--system", group_id).CombinedOutput()
+			if err == nil {
+				log.WithField("group_id", group_id).Info("Created group")
+			} else {
+				log.WithField("output", string(o)).WithField("group_id", group_id).WithError(err).Fatal("Failed to create group")
+			}
+			g, _ = user.LookupGroup(group_id)
+		} else {
+			log.WithField("group_id", group_id).Info("group already exists")
+		}
+		gid, _ := strconv.ParseInt(g.Gid, 10, 16)
+
+		u, err := user.Lookup(user_id)
+		if _, ok := err.(user.UnknownUserError); ok {
+			o, err := exec.Command("useradd", "-d", "/nonexistent", "-g", group_id, "-M", "-N", "--system", "-s", "/bin/false", user_id).CombinedOutput()
+			if err == nil {
+				log.WithField("user_id", user_id).Info("Created user")
+			} else {
+				log.WithField("output", string(o)).WithField("user_id", user_id).WithError(err).Fatal("Failed to create user")
+			}
+			u, _ = user.Lookup(user_id)
+		} else {
+			log.WithField("user_id", user_id).Info("user already exists")
+		}
+		uid, _ := strconv.ParseInt(u.Uid, 10, 16)
+
+		if _, err := os.Stat(log_path); os.IsNotExist(err) {
+			err = os.MkdirAll(log_path, 0750)
+			if err != nil {
+				log.WithError(err).WithField("logpath", log_path).Fatal("Failed to create the log directory")
+			} else {
+				log.WithField("logpath", log_path).Info("Created log directory")
+			}
+		} else {
+			log.WithField("logpath", log_path).Info("Log directory already exists")
+		}
+
+		os.Chown(log_path, int(uid), int(gid))
+
+		selfpath, err := exec.LookPath(os.Args[0])
+		if err != nil {
+			log.WithError(err).Fatal("Failed to lookup binary")
+		}
+		selfpath, err = filepath.Abs(selfpath)
+		if err != nil {
+			log.WithError(err).Fatal("Unexpected error ?!")
+		}
+
+		destpath, err := filepath.Abs(filepath.Join(*prefix_flag, "bin", "kafka2influxdb"))
+		if err != nil {
+			log.WithError(err).Fatal("Unexpected error ?!")
+		}
+
+		// copy the binary
+		if selfpath != destpath {
+			me, err := ioutil.ReadFile(selfpath)
+			if err != nil {
+				log.WithError(err).Fatal("Unexpected error ?!")
+			}
+			os.MkdirAll(filepath.Dir(destpath), 0755)
+			err = ioutil.WriteFile(destpath, me, 0755)
+			if err != nil {
+				log.WithError(err).WithField("prefix", *prefix_flag).WithField("destination", destpath).Fatal("Error copying executable. Try sudo ?")
+			} else {
+				log.WithField("prefix", *prefix_flag).WithField("destination", destpath).Info("Wrote kafka2influxdb binary")
+			}
+		}
+
+		// copy the manual page
+		manpath := filepath.Join(*prefix_flag, "man", "man1", "kafka2influxdb.1")
+		os.MkdirAll(filepath.Dir(manpath), 0755)
+		mancontent, _ := docsKafka2influxdb1Bytes()
+		err = ioutil.WriteFile(manpath, mancontent, 0644)
+		if err != nil {
+			log.WithError(err).WithField("prefix", *prefix_flag).WithField("manpath", manpath).Fatal("Failed to write the manual page")
+		} else {
+			log.WithField("prefix", *prefix_flag).WithField("manpath", manpath).Info("Wrote the manual page")
+		}
+
+		// create a default configuration file if it does not already exist
+		confpath := filepath.Join(*prefix_flag, "etc", "kafka2influxdb", "kafka2influxdb.toml")
+		if _, err := os.Stat(confpath); os.IsNotExist(err) {
+			os.MkdirAll(filepath.Dir(confpath), 0755)
+			err = ioutil.WriteFile(confpath, []byte(DefaultConf.export()), 0644)
+			if err != nil {
+				log.WithField("confpath", confpath).WithError(err).Fatal("Failed to write configuration file")
+			} else {
+				log.WithField("confpath", confpath).Info("Created a default configuration file")
+			}
+		} else {
+			log.WithField("confpath", confpath).Info("Configuration file already exists")
+		}
+
+		// copy the right init service file
+		init_kind := findinit.FindInit()
+		var init_path string
+		var init_content []byte
+
+		switch init_kind {
+		case findinit.Systemd:
+			init_content, _ = kafka2influxdbServiceBytes()
+			init_path = "/etc/systemd/system/kafka2influxdb.service"
+		case findinit.Upstart:
+			init_content, _ = kafka2influxdbUpstartBytes()
+			init_path = "/etc/init/kafka2influxdb.conf"
+		default:
+			log.WithField("init", init_kind).Fatal("not implemented")
+		}
+
+		init_content = bytes.Replace(init_content, []byte("/usr/local"), []byte(*prefix_flag), -1)
+		init_content = bytes.Replace(
+			init_content,
+			[]byte("/etc/kafka2influxdb"),
+			[]byte(filepath.Dir(confpath)),
+			-1)
+
+		err = ioutil.WriteFile(init_path, init_content, 0644)
+		if err != nil {
+			log.WithError(err).WithField("path", init_path).Fatal("Failed to write the service file")
+		} else {
+			log.WithField("path", init_path).Info("Wrote the service file")
+		}
+
+		if init_kind == findinit.Upstart {
+			// don't start the upstart service automatically
+			if _, err = os.Stat("/etc/init/kafka2influxdb.override"); os.IsNotExist(err) {
+				err = ioutil.WriteFile("/etc/init/kafka2influxdb.override", []byte("manual"), 0644)
+				if err != nil {
+					log.Fatal("Failed to write /etc/init/kafka2influxdb.override")
+				}
+			}
+		}
+
+		default_c := "/etc/default/kafka2influxdb"
+		if _, err = os.Stat(default_c); os.IsNotExist(err) {
+			os.MkdirAll(filepath.Dir(default_c), 0755)
+			init_default_content, _ := kafka2influxdbDefaultBytes()
+			err = ioutil.WriteFile(default_c, init_default_content, 0644)
+			if err != nil {
+				log.WithError(err).WithField("path", default_c).Fatal("Failed to write")
+			} else {
+				log.WithField("path", default_c).Info("Created")
+			}
+		} else {
+			log.WithField("path", default_c).Info("Already exists")
+		}
+
+		// systemctl daemon-reload
+		if init_kind == findinit.Systemd {
+			exec.Command("systemctl", "daemon-reload").CombinedOutput()
+		}
 	}
 
 }

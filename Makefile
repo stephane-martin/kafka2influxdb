@@ -27,6 +27,7 @@ distclean: clean
 
 deb:
 	if ! dpkg -s devscripts > /dev/null 2>&1 ; then sudo apt-get install devscripts; fi
+	cp -f $(src_dir)/kafka2influxdb.default $(src_dir)/debian
 	if [ -f /sbin/initctl ]; then \
 		cp -f $(src_dir)/kafka2influxdb.upstart $(src_dir)/debian;\
 		cp -f $(src_dir)/debian/rules.nonsystemd $(src_dir)/debian/rules;\
@@ -50,7 +51,7 @@ manpage:
 	pandoc $(src_dir)/manpage.md -s -t man -o $(src_dir)/docs/kafka2influxdb.1
 
 bindata: manpage
-	go-bindata kafka2influxdb.service kafka2influxdb.upstart kafka2influxdb.1
+	go-bindata kafka2influxdb.service kafka2influxdb.upstart kafka2influxdb.default docs/kafka2influxdb.1
 
 sync: bindata
 	git add . && git commit && git pull origin master && git push origin master

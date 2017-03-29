@@ -420,6 +420,12 @@
 			"tree": true
 		},
 		{
+			"checksumSHA1": "17+libFX3Brih+xqJb4sv7bmscQ=",
+			"path": "github.com/stephane-martin/go-findinit",
+			"revision": "5967fb143b5b58c3c8f505d169cf23a9be9ee484",
+			"revisionTime": "2017-03-28T20:55:41Z"
+		},
+		{
 			"checksumSHA1": "E7/tjsGIpBUhoHIeRRY7glLX8VA=",
 			"path": "github.com/uber-go/zap",
 			"revision": "7cb1af25c667ffc545ab09add063672a602be547",

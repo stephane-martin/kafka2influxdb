@@ -8,25 +8,28 @@ kafka2influxdb \[en] pull metrics stored in Kafka topics and push them
 to InfluxDB
 .SH SYNOPSIS
 .PP
-\f[B]kafka2influxdb\f[] [\f[B]\-\-config\f[]=\f[B]CONFIGFILE\f[]]
+\f[B]kafka2influxdb\f[] [\f[B]\-\-config\f[]=\f[B]DIRECTORY\f[]]
 \f[B]check\-topics\f[]
 .PD 0
 .P
 .PD
-\f[B]kafka2influxdb\f[] [\f[B]\-\-config\f[]=\f[B]CONFIGFILE\f[]]
+\f[B]kafka2influxdb\f[] [\f[B]\-\-config\f[]=\f[B]DIRECTORY\f[]]
 \f[B]check\-config\f[]
 .PD 0
 .P
 .PD
-\f[B]kafka2influxdb\f[] [\f[B]\-\-config\f[]=\f[B]CONFIGFILE\f[]]
+\f[B]kafka2influxdb\f[] [\f[B]\-\-config\f[]=\f[B]DIRECTORY\f[]]
 \f[B]ping\-influxdb\f[]
 .PD 0
 .P
 .PD
-\f[B]kafka2influxdb\f[] [\f[B]\-\-config\f[]=\f[B]CONFIGFILE\f[]]
-\f[B]start\f[] [\f[B]\-\-syslog\f[]]
-[\f[B]\-\-logfile\f[]=\f[B]LOGFILE\f[]]
-[\f[B]\-\-loglevel\f[]=\f[B]LOGLEVEL\f[]]
+\f[B]kafka2influxdb\f[] [\f[B]\-\-config\f[]=\f[B]DIRECTORY\f[]]
+\f[B]start\f[] [start\-options]
+.PD 0
+.P
+.PD
+\f[B]kafka2influxdb\f[] \f[B]stop\f[]
+[\f[B]pidfile\f[]=\f[B]PIDFILE\f[]]
 .PD 0
 .P
 .PD
@@ -84,13 +87,30 @@ Check that InfluxDB is available
 .RE
 .TP
 .B \f[B]start\f[]
-Start to forward metrics
+Start to push the metrics
+.RS
+.RE
+.TP
+.B \f[B]stop\f[]
+Stop kafka2influxdb
+.RS
+.RE
+.TP
+.B \f[B]install\f[]
+Copy the kafka2influxdb binary to the PATH, create a manual page an a
+service file
 .RS
 .RE
 .SH OPTIONS
 .TP
-.B \f[B]\-h\f[], \f[B]\-\-help\f[]
-Display a friendly help message.
+.B \f[B]\-\-config\f[]=\f[B]DIRECTORY\f[]
+The directory containing the configuration file
+\f[C]kafka2influxdb.toml\f[]
+.RS
+.RE
+.TP
+.B \f[B]\-\-daemonize\f[]
+Start kafka2influxdb in daemon mode
 .RS
 .RE
 .TP
@@ -99,8 +119,23 @@ Write log messages to syslog (messages will also be written to stdout)
 .RS
 .RE
 .TP
+.B \f[B]\-\-loglevel\f[]=\f[B]LEVEL\f[]
+Set logging level (info, debug, warn, error)
+.RS
+.RE
+.TP
 .B \f[B]\-\-logfile\f[]=\f[B]LOGFILE\f[]
 Write log messages to LOGFILE instead of stdout
+.RS
+.RE
+.TP
+.B \f[B]\-\-pidfile\f[]=\f[B]PIDFILE\f[]
+Write a PID file
+.RS
+.RE
+.TP
+.B \f[B]prefix\f[]=\f[B]PREFIX\f[]
+Installation prefix
 .RS
 .RE
 .SH FILES

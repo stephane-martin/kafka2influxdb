@@ -13,6 +13,6 @@ kill timeout 10
 
 script
 	. /etc/default/kafka2influxdb
-	exec /usr/local/bin/kafka2influxdb start --logfile=$LOGFILE --loglevel=$LOGLEVEL
+	exec /usr/local/bin/kafka2influxdb --config="/etc/kafka2influxdb" start --logfile=$LOGFILE --loglevel=$LOGLEVEL
 end script
 

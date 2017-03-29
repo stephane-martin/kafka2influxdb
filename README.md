@@ -27,11 +27,15 @@ Just `go get github.com/stephane-martin/kafka2influxdb`
 
 The dependencies are vendored.
 
+After compilation, you can `sudo ./kafka2influxdb install --prefix=/usr/local`
+to copy the binary in the PATH and create a default configuration, the
+systemd/upstart service, the log directory, a specific user/group, etc.
+
 # Debian packaging
 
-You can build a package for Debian based distributions (systemd only).
+You can build a package for Debian based distributions.
 
-First install go, then:
+First install `go`, then:
 
 ```
 git clone https://github.com/stephane-martin/kafka2influxdb.git"
