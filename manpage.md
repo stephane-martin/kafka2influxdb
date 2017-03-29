@@ -10,12 +10,13 @@ kafka2influxdb – pull metrics stored in Kafka topics and push them to InfluxDB
 SYNOPSIS
 ========
 
-| **kafka2influxdb** **--help**
-| **kafka2influxdb** **check-topics**
+| **kafka2influxdb** [**--config**=**CONFIGFILE**] **check-topics**
+| **kafka2influxdb** [**--config**=**CONFIGFILE**] **check-config**
+| **kafka2influxdb** [**--config**=**CONFIGFILE**] **ping-influxdb**
+| **kafka2influxdb** [**--config**=**CONFIGFILE**] **start** [**--syslog**] [**--logfile**=**LOGFILE**]
+| **kafka2influxdb** **install** [**--prefix**=**PREFIX**]
 | **kafka2influxdb** **default-config**
-| **kafka2influxdb** **check-config**
-| **kafka2influxdb** **ping-influxdb**
-| **kafka2influxdb** [**--config**=**CONFIGFILE**] [**--syslog**] [**--logfile**=**LOGFILE**] **start**
+| **kafka2influxdb** **--help**
 
 DESCRIPTION
 ===========
