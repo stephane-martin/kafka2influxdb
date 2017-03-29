@@ -380,6 +380,8 @@ func ReadConfig(directory string) (*GConfig, error) {
 	var config GConfig = DefaultConf
 	viper.SetConfigName("kafka2influxdb")
 	viper.AddConfigPath(directory)
+	viper.AddConfigPath("/etc/kafka2influxdb")
+	viper.AddConfigPath("/usr/local/etc/kafka2influxdb")
 	err := viper.ReadInConfig()
 	if err != nil {
 		return nil, err
