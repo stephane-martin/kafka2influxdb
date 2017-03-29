@@ -27,18 +27,21 @@ distclean: clean
 
 deb:
 	if ! dpkg -s devscripts > /dev/null 2>&1 ; then sudo apt-get install devscripts; fi
-	if [ -f /usr/lib/upstart ]; then \
+	if [ -f /sbin/initctl ]; then \
 		cp -f $(src_dir)/kafka2influxdb.upstart $(src_dir)/debian;\
 		cp -f $(src_dir)/debian/rules.nonsystemd $(src_dir)/debian/rules;\
+		cp -f $(src_dir)/debian/control.nonsystemd $(src_dir)/debian/control;\
 		sed -i 's/local\///' -i debian/kafka2influxdb.upstart;\
 	elif [ -f /lib/systemd/systemd ];then \
 		if ! dpkg -s dh-systemd > /dev/null 2>&1 ; then sudo apt-get install dh-systemd; fi;\
 		cp -f $(src_dir)/kafka2influxdb.service $(src_dir)/debian;\
 		cp -f $(src_dir)/debian/rules.systemd $(src_dir)/debian/rules;\
+		cp -f $(src_dir)/debian/control.systemd $(src_dir)/debian/control;\
 		sed -i 's/local\///' -i debian/kafka2influxdb.service;\
 	else \
 		cp -f $(src_dir)/kafka2influxdb.init $(src_dir)/debian;\
 		cp -f $(src_dir)/debian/rules.nonsystemd $(src_dir)/debian/rules;\
+		cp -f $(src_dir)/debian/control.nonsystemd $(src_dir)/debian/control;\
 		sed -i 's/local\///' -i debian/kafka2influxdb.init;\
 	fi
 	dpkg-buildpackage -us -uc -b
