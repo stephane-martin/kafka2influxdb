@@ -27,7 +27,6 @@ distclean: clean
 
 deb:
 	if ! dpkg -s devscripts > /dev/null 2>&1 ; then sudo apt-get install devscripts; fi
-	cp -f $(src_dir)/kafka2influxdb.1 $(src_dir)/debian
 	if [ -f /usr/lib/upstart ]; then \
 		cp -f $(src_dir)/kafka2influxdb.upstart $(src_dir)/debian;\
 		cp -f $(src_dir)/debian/rules.nonsystemd $(src_dir)/debian/rules;\
@@ -45,7 +44,7 @@ deb:
 	dpkg-buildpackage -us -uc -b
 
 manpage:
-	pandoc $(src_dir)/manpage.md -s -t man -o $(src_dir)/kafka2influxdb.1
+	pandoc $(src_dir)/manpage.md -s -t man -o $(src_dir)/docs/kafka2influxdb.1
 
 bindata: manpage
 	go-bindata kafka2influxdb.service kafka2influxdb.upstart kafka2influxdb.1

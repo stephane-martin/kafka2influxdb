@@ -9,4 +9,4 @@ debian/kafka2influxdb
 debian/kafka2influxdb.service
 debian/kafka2influxdb.upstart
 debian/kafka2influxdb.init
-
+docs/kafka2influxdb.1
