@@ -11,12 +11,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"syscall"
+	"strings"
 
 	"github.com/Sirupsen/logrus"
 	logrus_syslog "github.com/Sirupsen/logrus/hooks/syslog"
 	"github.com/alecthomas/kingpin"
 	"github.com/facebookgo/pidfile"
 	"github.com/stephane-martin/go-findinit"
+	"github.com/shirou/gopsutil/process"
 )
 
 var log *logrus.Logger
@@ -94,9 +96,19 @@ func main() {
 				log.WithError(err).WithField("pid", pid).Fatal("failed to send SIGTERM to process")
 			}
 		} else {
-			output, err := exec.Command("pkill", "-SIGTERM", "kafka2influxdb").CombinedOutput()
+			my_pid := os.Getpid()
+			pid_list, err := process.Pids()
 			if err != nil {
-				log.WithError(err).WithField("output", output).Fatal("failed to (p)kill kafka2influxdb")
+				log.WithError(err).Fatal("Failed to get the list of processes")
+			}
+			for _, pid := range pid_list {
+				p, err := process.NewProcess(pid)
+				if err == nil {
+					name, err := p.Name()
+					if err == nil && int(pid) != my_pid && strings.Contains(name, "kafka2influxdb") {
+						p.Terminate()
+					}
+				}
 			}
 		}
 
