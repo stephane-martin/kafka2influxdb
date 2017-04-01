@@ -514,7 +514,10 @@ func (app *Kafka2InfluxdbApp) processAndCommit(consumer *cluster.Consumer, pack 
 	for _, m := range *pack {
 		consumer.MarkOffset(m, "")
 	}
-	consumer.CommitOffsets()
+	err = consumer.CommitOffsets()
+	if err != nil {
+		return errwrap.Wrapf("Error happened while committing offsets to kafka: {{err}}", err)
+	}
 
 	return nil
 }
