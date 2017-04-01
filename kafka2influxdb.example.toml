@@ -9,6 +9,9 @@ batch_max_duration = 60000
 topics = ["metrics_*"]
 # refresh the matching Kafka topics after that duration (ms, default 300000)
 refresh_topics = 300000
+# specify the format of logs produced by kafka2influxdb. can be 'text' or 'json'. default 'text'
+logformat = "text"
+
 
 [influxdb]
 # InfluxDB host (mandatory)

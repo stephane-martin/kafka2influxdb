@@ -22,6 +22,7 @@ import (
 )
 
 type GConfig struct {
+	Logformat        string              `mapstructure:"logformat" toml:"logformat"`
 	BatchSize        uint32              `mapstructure:"batch_size" toml:"batch_size"`
 	BatchMaxDuration uint32              `mapstructure:"batch_max_duration" toml:"batch_max_duration"`
 	Topics           []string            `mapstructure:"topics" toml:"topics"`
@@ -121,6 +122,7 @@ var kafka_default_conf KafkaConf = KafkaConf{
 var default_mapping map[string]string = map[string]string{}
 
 var DefaultConf GConfig = GConfig{
+	Logformat:        "text",
 	BatchMaxDuration: 60000,
 	BatchSize:        5000,
 	Topics:           []string{"metrics_*"},
@@ -188,6 +190,10 @@ func (conf *GConfig) check() error {
 		conf.Kafka.cVersion = sarama.V0_9_0_0
 	} else {
 		return fmt.Errorf("Kafka is not recent enough. Needs at least 0.9")
+	}
+
+	if !(conf.Logformat == "json" || conf.Logformat == "text") {
+		return fmt.Errorf("Logformat must be 'json' or 'text'")
 	}
 
 	if !(conf.Kafka.Format == "json" || conf.Kafka.Format == "influx") {

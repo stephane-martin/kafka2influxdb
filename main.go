@@ -387,16 +387,23 @@ func do_start_real(app *Kafka2InfluxdbApp, pidfilename string, use_syslog bool, 
 	var count uint64 = 0
 	var err error
 	restart := true
+	disable_timestamps := false
 
 	if use_syslog {
 		// also write logs to syslog
 		hook, err := logrus_syslog.NewSyslogHook("", "", syslog.LOG_INFO, "")
 		if err == nil {
-			log.Formatter = &logrus.TextFormatter{DisableColors: true, DisableTimestamp: true}
+			disable_timestamps = true
 			log.Hooks.Add(hook)
 		} else {
 			log.WithError(err).Error("Unable to connect to local syslog daemon")
 		}
+	}
+
+	if app.conf.Logformat == "json" {
+		log.Formatter = &logrus.JSONFormatter{}
+	} else {		
+		log.Formatter = &logrus.TextFormatter{DisableColors: true, DisableTimestamp: disable_timestamps}
 	}
 
 	// set log level
