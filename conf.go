@@ -22,6 +22,7 @@ import (
 )
 
 type GConfig struct {
+	RetryDelay       uint32              `mapstructure:"retry_delay_ms" toml:"retry_delay_ms"`
 	Logformat        string              `mapstructure:"logformat" toml:"logformat"`
 	BatchSize        uint32              `mapstructure:"batch_size" toml:"batch_size"`
 	BatchMaxDuration uint32              `mapstructure:"batch_max_duration" toml:"batch_max_duration"`
@@ -122,6 +123,7 @@ var kafka_default_conf KafkaConf = KafkaConf{
 var default_mapping map[string]string = map[string]string{}
 
 var DefaultConf GConfig = GConfig{
+	RetryDelay:       30000,
 	Logformat:        "text",
 	BatchMaxDuration: 60000,
 	BatchSize:        5000,

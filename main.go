@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"time"
 	"io/ioutil"
 	"log/syslog"
 	"os"
@@ -384,9 +385,7 @@ func main() {
 
 func do_start_real(app *Kafka2InfluxdbApp, pidfilename string, use_syslog bool, loglevel string, logfilename string) {
 	var total_count uint64 = 0
-	var count uint64 = 0
 	var err error
-	restart := true
 	disable_timestamps := false
 
 	if use_syslog {
@@ -435,14 +434,27 @@ func do_start_real(app *Kafka2InfluxdbApp, pidfilename string, use_syslog bool, 
 		}()
 	}
 
+	pause := app.conf.RetryDelay
+
 	// start the consuming loop
-	for restart {
-		count, err, restart = app.consume()
+	for {
+		count, err, stopping := app.consume()
 		total_count += count
-		count = 0
-		if err != nil {
-			restart = false
-			log.WithError(err).Error("Error while consuming")
+		if err == nil {
+			if stopping {
+				break
+			}
+			pause = app.conf.RetryDelay
+		} else {
+			log.WithError(err).Error("Error happened while consuming")
+			if stopping || (app.conf.RetryDelay < 0) {
+				break
+			}
+			if app.conf.RetryDelay > 0 {
+				log.WithField("duration", pause).Info("Pausing")
+				time.Sleep(time.Millisecond * time.Duration(pause))
+				pause *= 2							
+			}
 		}
 	}
 

@@ -3,14 +3,33 @@
 
 # how many metrics to send to InfluxDB in one batch (default 5000)
 batch_size = 5000
-# send a batch of metrics to InfluxDB after that duration, even if there are less than batch_size metrics (ms, default 60000)
+
+# send a batch of metrics to InfluxDB after that duration, even if there are
+# less than batch_size metrics
+# milliseconds, default 60000
 batch_max_duration = 60000
-# from which Kafka topics to gather metrics. You can specify a glob. Default "metrics_*"
+
+# from which Kafka topics to gather metrics. You can specify a glob.
+# Default "metrics_*"
 topics = ["metrics_*"]
-# refresh the matching Kafka topics after that duration (ms, default 300000)
+
+# refresh the matching Kafka topics after that duration 
+# milliseconds, default 300000
 refresh_topics = 300000
-# specify the format of logs produced by kafka2influxdb. can be 'text' or 'json'. default 'text'
+
+# specify the format of logs produced by kafka2influxdb. can be 'text' or 'json'.
+# default 'text'
 logformat = "text"
+
+# if some error happens while consuming (kafka not available, influxdb not
+# available, etc), what to do?
+# if retry_delay_ms < 0: abort kafka2influxdb
+# if retry_delay_ms = 0: retry without delay
+# if retry_delay_ms > 0: pause for retry_delay_ms milliseconds, then retry.
+# In next iteration, if some error happens again, the delay will be doubled
+# each time.
+# default: 30000
+retry_delay_ms = 30000
 
 
 [influxdb]

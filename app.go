@@ -454,7 +454,6 @@ func (app *Kafka2InfluxdbApp) process(pack []*sarama.ConsumerMessage) (err error
 	log.WithField("nb_points", len(pack)).Info("Points to push to InfluxDB")
 	topicBatchMap := map[string]influx.BatchPoints{}
 
-
 	parser, err := NewParser(app.conf.Kafka.Format, app.conf.Influxdb.Precision)
 	if err != nil {
 		return err
@@ -522,11 +521,10 @@ func (app *Kafka2InfluxdbApp) processAndCommit(consumer *cluster.Consumer, pack 
 	return nil
 }
 
-func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, restart bool) {
+func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping bool) {
 
 	total_count = 0
-	restart = false
-
+	stopping = false
 	var count uint32 = 0
 	var last_push time.Time
 	start_time := time.Now()
@@ -568,27 +566,26 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, restart 
 	sarama_conf, _ := app.conf.getSaramaClusterConf()
 	consumer, err := cluster.NewConsumer(app.conf.Kafka.Brokers, app.conf.Kafka.ConsumerGroup, topics, sarama_conf)
 	if err != nil {
-		log.WithError(err).Error("Error creating the Kafka consumer")
 		err = errwrap.Wrapf("Failed to create the Kafka consumer: {{err}}", err)
 		return 0, err, false
 	}
 	defer consumer.Close()
 
-	log.WithField("topics", strings.Join(topics, ",")).Info("Will consume from these fields")
+	log.WithField("topics", strings.Join(topics, ",")).Info("Consuming these topics")
 
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
+	stopping_signals := make(chan os.Signal, 1)
+	signal.Notify(stopping_signals, syscall.SIGTERM, syscall.SIGINT)
 
-	pack_of_messages := []*sarama.ConsumerMessage{}
+	pack_of_messages := make([]*sarama.ConsumerMessage, 0, app.conf.BatchSize)
 	last_push = time.Now()
 	batch_max_duration := time.Millisecond * time.Duration(app.conf.BatchMaxDuration)
 	refresh_topics_duration := time.Millisecond * time.Duration(app.conf.RefreshTopics)
 
 	for {
 		select {
-		case <-signals:
-			log.Info("Caught signal")
-			return total_count, nil, false
+		case <-stopping_signals:
+			log.Info("Caught signal: stopping")
+			return total_count, nil, true
 		default:
 			select {
 			case msg, more := <-consumer.Messages():
@@ -604,21 +601,22 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, restart 
 						if err != nil {
 							return total_count, err, false
 						}
-						pack_of_messages = []*sarama.ConsumerMessage{}
+						pack_of_messages = make([]*sarama.ConsumerMessage, 0, app.conf.BatchSize)
 						if time.Now().Sub(start_time) > refresh_topics_duration {
 							// time to refresh topics
 							log.Info("Refreshing topics")
-							return total_count, nil, true
+							return total_count, nil, false
 						}
 					}
 				}
 			case err, more := <-consumer.Errors():
 				if more {
-					log.WithError(err).Error("Error with Kafka consumer")
+					err = errwrap.Wrapf("Error happened in kafka consumer: {{err}}", err)
+					return total_count, err, false
 				}
 			case ntf, more := <-consumer.Notifications():
 				if more {
-					log.WithField("ntf", fmt.Sprintf("%+v", ntf)).Info("Rebalanced")
+					log.WithField("ntf", fmt.Sprintf("%+v", ntf)).Debug("Rebalanced")
 				}
 			}
 		}
