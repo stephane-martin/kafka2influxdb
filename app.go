@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
+	"sync"
 
 	"github.com/Shopify/sarama"
 	cluster "github.com/bsm/sarama-cluster"
@@ -17,6 +19,11 @@ import (
 
 type Kafka2InfluxdbApp struct {
 	conf *GConfig
+}
+
+type Message struct {
+	raw    *sarama.ConsumerMessage
+	parsed *influx.Point
 }
 
 func (app *Kafka2InfluxdbApp) reloadConfiguration(dirname string) error {
@@ -32,7 +39,7 @@ func (app *Kafka2InfluxdbApp) reloadConfiguration(dirname string) error {
 	}
 	app.conf = config_ptr
 	return nil
-} 
+}
 
 func listExistingUsers(client influx.Client) ([]string, error) {
 	q := influx.NewQuery("SHOW USERS", "", "")
@@ -454,7 +461,7 @@ func (app *Kafka2InfluxdbApp) getSourceKafkaTopics() ([]string, error) {
 
 }
 
-func (app *Kafka2InfluxdbApp) process(pack []*sarama.ConsumerMessage) (err error) {
+func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
 	config, err := app.conf.getInfluxHTTPConfig(false)
 	if err != nil {
 		return err
@@ -469,31 +476,19 @@ func (app *Kafka2InfluxdbApp) process(pack []*sarama.ConsumerMessage) (err error
 	log.WithField("nb_points", len(pack)).Info("Points to push to InfluxDB")
 	topicBatchMap := map[string]influx.BatchPoints{}
 
-	parser, err := NewParser(app.conf.Kafka.Format, app.conf.Influxdb.Precision)
-	if err != nil {
-		return err
-	}
-
 	for _, msg := range pack {
-		if _, ok := topicBatchMap[msg.Topic]; !ok {
+		if _, ok := topicBatchMap[msg.raw.Topic]; !ok {
 			bp, _ := influx.NewBatchPoints(
 				influx.BatchPointsConfig{
-					Database:        app.conf.topic2dbname(msg.Topic),
+					Database:        app.conf.topic2dbname(msg.raw.Topic),
 					Precision:       app.conf.Influxdb.Precision,
 					RetentionPolicy: app.conf.Influxdb.RetentionPolicy,
 				},
 			)
-			topicBatchMap[msg.Topic] = bp
+			topicBatchMap[msg.raw.Topic] = bp
 		}
-		point, err := parser.Parse(msg.Value)
-		if err == nil {
-			if point != nil {
-				topicBatchMap[msg.Topic].AddPoint(point)
-			}
-		} else {
-			log.WithError(err).
-				WithField("message", msg.Value).
-				Error("error happened when parsing a metric")
+		if msg.parsed != nil {
+			topicBatchMap[msg.raw.Topic].AddPoint(msg.parsed)
 		}
 	}
 	for topic, bp := range topicBatchMap {
@@ -519,29 +514,11 @@ func (app *Kafka2InfluxdbApp) process(pack []*sarama.ConsumerMessage) (err error
 	return nil
 }
 
-func (app *Kafka2InfluxdbApp) processAndCommit(consumer *cluster.Consumer, pack *[]*sarama.ConsumerMessage) error {
-	err := app.process(*pack)
-	if err != nil {
-		return err
-	}
-
-	for _, m := range *pack {
-		consumer.MarkOffset(m, "")
-	}
-	err = consumer.CommitOffsets()
-	if err != nil {
-		return errwrap.Wrapf("Error happened while committing offsets to kafka: {{err}}", err)
-	}
-
-	return nil
-}
-
 func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload bool, stopping bool) {
 
 	total_count = 0
 	reload = false
 	stopping = false
-	var count uint32 = 0
 	var last_push time.Time
 	start_time := time.Now()
 
@@ -579,6 +556,11 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload b
 		return 0, err, false, false
 	}
 
+	parser, err := NewParser(app.conf.Kafka.Format, app.conf.Influxdb.Precision)
+	if err != nil {
+		return 0, err, false, false
+	}
+
 	sarama_conf, _ := app.conf.getSaramaClusterConf()
 	consumer, err := cluster.NewConsumer(app.conf.Kafka.Brokers, app.conf.Kafka.ConsumerGroup, topics, sarama_conf)
 	if err != nil {
@@ -595,35 +577,102 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload b
 	reload_signals := make(chan os.Signal, 1)
 	signal.Notify(reload_signals, syscall.SIGHUP)
 
-	pack_of_messages := make([]*sarama.ConsumerMessage, 0, app.conf.BatchSize)
+	pack_of_messages := make([]Message, 0, app.conf.BatchSize)
 	last_push = time.Now()
 	batch_max_duration := time.Millisecond * time.Duration(app.conf.BatchMaxDuration)
 	refresh_topics_duration := time.Millisecond * time.Duration(app.conf.RefreshTopics)
+
+	raw_messages := make(chan *sarama.ConsumerMessage, app.conf.BatchSize)
+	parsed_messages := make(chan Message, app.conf.BatchSize)
+	buckets := make(chan []Message, 100)
+	push_errors := make(chan error, 100)
+	
+	var parser_workers_wg sync.WaitGroup
+	var push_worker_wg sync.WaitGroup
+
+	parse_worker := func() {
+		for msg := range raw_messages {
+			point, err := parser.Parse(msg.Value)
+			if err != nil {
+				log.WithError(err).
+					WithField("message", string(msg.Value)).
+					Error("Error happened when parsing a metric")
+			} else {
+				parsed_messages <- Message{raw: msg, parsed: point}
+			}
+		}
+		parser_workers_wg.Done()
+	}
+
+	push_worker := func() {
+		for bucket := range buckets {
+			err := app.process(bucket)
+			if err != nil {
+				push_errors <- err
+				continue
+			}
+
+			for _, m := range bucket {
+				consumer.MarkOffset(m.raw, "")
+			}
+			err = consumer.CommitOffsets()
+			if err != nil {
+				push_errors <- errwrap.Wrapf("Error happened while committing offsets to kafka: {{err}}", err)
+			}
+		}
+		close(push_errors)
+		push_worker_wg.Done()
+	}
+
+	// defers are triggered in LIFO
+	defer func() {
+		push_worker_wg.Wait()
+		parser_workers_wg.Wait()
+		close(parsed_messages)
+	}()
+	defer close(raw_messages)
+	defer close(buckets)
+
+	num_cpus := runtime.NumCPU()
+	for i := 0; i < num_cpus; i++ {
+		parser_workers_wg.Add(1)
+		go parse_worker()
+	}
+	push_worker_wg.Add(1)
+	go push_worker()
 
 	for {
 		select {
 		case <-stopping_signals:
 			log.Info("Caught SIGTERM signal: stopping")
 			return total_count, nil, false, true
-		case <- reload_signals:
+		case <-reload_signals:
 			log.Info("Caught SIGHUP signal: reloading configuration")
 			return total_count, nil, true, false
+		case err, more := <-push_errors:
+			if more {
+				return total_count, err, false, false
+			}
+		case err, more := <-consumer.Errors():
+			if more {
+				err = errwrap.Wrapf("Error happened in kafka consumer: {{err}}", err)
+				return total_count, err, false, false
+			}
+		case ntf, more := <-consumer.Notifications():
+			if more {
+				log.WithField("ntf", fmt.Sprintf("%+v", ntf)).Debug("Rebalanced")
+			}
+
 		default:
 			select {
-			case msg, more := <-consumer.Messages():
+			case msg, more := <-parsed_messages:
 				if more {
-					count++
-					total_count++
 					pack_of_messages = append(pack_of_messages, msg)
 					now := time.Now()
-					if (count >= app.conf.BatchSize) || (now.Sub(last_push) > batch_max_duration) {
-						count = 0
+					if (len(pack_of_messages) >= int(app.conf.BatchSize)) || (now.Sub(last_push) > batch_max_duration) {
 						last_push = now
-						err := app.processAndCommit(consumer, &pack_of_messages)
-						if err != nil {
-							return total_count, err, false, false
-						}
-						pack_of_messages = make([]*sarama.ConsumerMessage, 0, app.conf.BatchSize)
+						buckets <- pack_of_messages
+						pack_of_messages = make([]Message, 0, app.conf.BatchSize)
 						if time.Now().Sub(start_time) > refresh_topics_duration {
 							// time to refresh topics
 							log.Info("Refreshing topics")
@@ -631,14 +680,14 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload b
 						}
 					}
 				}
-			case err, more := <-consumer.Errors():
-				if more {
-					err = errwrap.Wrapf("Error happened in kafka consumer: {{err}}", err)
-					return total_count, err, false, false
-				}
-			case ntf, more := <-consumer.Notifications():
-				if more {
-					log.WithField("ntf", fmt.Sprintf("%+v", ntf)).Debug("Rebalanced")
+			default:
+				select {
+				case msg, more := <-consumer.Messages():
+					if more {
+						total_count++
+						raw_messages <- msg
+					}
+				default:
 				}
 			}
 		}

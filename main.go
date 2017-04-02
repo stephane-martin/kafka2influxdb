@@ -416,6 +416,7 @@ func do_start_real(app *Kafka2InfluxdbApp, config_dirname string, pidfilename st
 	}
 
 	pause := app.conf.RetryDelay
+	start_time := time.Now()
 
 	// start the consuming loop
 	for {
@@ -448,4 +449,6 @@ func do_start_real(app *Kafka2InfluxdbApp, config_dirname string, pidfilename st
 
 	log.Info("Shutting down")
 	log.WithField("total_count", total_count).Info("Total number of points fetched from Kafka")
+	rate := int(float64(total_count) / time.Now().Sub(start_time).Seconds())
+	log.WithField("rate", rate).Info("Messages per second")
 }

@@ -299,7 +299,7 @@ func (c *GConfig) getSaramaConf() (*sarama.Config, error) {
 	conf.Consumer.MaxWaitTime = 500 * time.Millisecond
 	conf.ClientID = c.Kafka.ClientID
 	conf.Version = c.Kafka.cVersion
-	conf.ChannelBufferSize = int(c.BatchSize)
+	conf.ChannelBufferSize = int(2 * c.BatchSize)
 
 	if c.Kafka.TLS.Enable {
 		tlsConfigPtr, err = GetTLSConfig(
