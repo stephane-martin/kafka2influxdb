@@ -19,6 +19,21 @@ type Kafka2InfluxdbApp struct {
 	conf *GConfig
 }
 
+func (app *Kafka2InfluxdbApp) reloadConfiguration(dirname string) error {
+	// read the configuration file
+	config_ptr, err := ReadConfig(dirname)
+	if err != nil {
+		return errwrap.Wrapf("Failed to read the configuration file: {{err}}", err)
+	}
+	// check that configuration is OK
+	err = config_ptr.check()
+	if err != nil {
+		return errwrap.Wrapf("Incorrect configuration: {{err}}", err)
+	}
+	app.conf = config_ptr
+	return nil
+} 
+
 func listExistingUsers(client influx.Client) ([]string, error) {
 	q := influx.NewQuery("SHOW USERS", "", "")
 	users := []string{}
@@ -521,9 +536,10 @@ func (app *Kafka2InfluxdbApp) processAndCommit(consumer *cluster.Consumer, pack 
 	return nil
 }
 
-func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping bool) {
+func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload bool, stopping bool) {
 
 	total_count = 0
+	reload = false
 	stopping = false
 	var count uint32 = 0
 	var last_push time.Time
@@ -532,25 +548,25 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 	topics, err := app.getSourceKafkaTopics()
 
 	if err != nil {
-		return
+		return 0, err, false, false
 	}
 
 	if len(topics) == 0 {
-		log.Warn("No Kafka topic is matching your glob")
-		return
+		err = fmt.Errorf("No kafka topic is matching: doing nothing")
+		return 0, err, false, false
 	}
 
 	if app.conf.Influxdb.Auth {
 		err = app.createWriteUser()
 		if err != nil {
-			return
+			return 0, err, false, false
 		}
 	}
 
 	if app.conf.Influxdb.CreateDatabases {
 		err = app.createDatabases(topics)
 		if err != nil {
-			return
+			return 0, err, false, false
 		}
 	}
 
@@ -560,14 +576,14 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 
 	err = app.checkDatabases(topics)
 	if err != nil {
-		return
+		return 0, err, false, false
 	}
 
 	sarama_conf, _ := app.conf.getSaramaClusterConf()
 	consumer, err := cluster.NewConsumer(app.conf.Kafka.Brokers, app.conf.Kafka.ConsumerGroup, topics, sarama_conf)
 	if err != nil {
 		err = errwrap.Wrapf("Failed to create the Kafka consumer: {{err}}", err)
-		return 0, err, false
+		return 0, err, false, false
 	}
 	defer consumer.Close()
 
@@ -575,6 +591,9 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 
 	stopping_signals := make(chan os.Signal, 1)
 	signal.Notify(stopping_signals, syscall.SIGTERM, syscall.SIGINT)
+
+	reload_signals := make(chan os.Signal, 1)
+	signal.Notify(reload_signals, syscall.SIGHUP)
 
 	pack_of_messages := make([]*sarama.ConsumerMessage, 0, app.conf.BatchSize)
 	last_push = time.Now()
@@ -584,8 +603,11 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 	for {
 		select {
 		case <-stopping_signals:
-			log.Info("Caught signal: stopping")
-			return total_count, nil, true
+			log.Info("Caught SIGTERM signal: stopping")
+			return total_count, nil, false, true
+		case <- reload_signals:
+			log.Info("Caught SIGHUP signal: reloading configuration")
+			return total_count, nil, true, false
 		default:
 			select {
 			case msg, more := <-consumer.Messages():
@@ -599,20 +621,20 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 						last_push = now
 						err := app.processAndCommit(consumer, &pack_of_messages)
 						if err != nil {
-							return total_count, err, false
+							return total_count, err, false, false
 						}
 						pack_of_messages = make([]*sarama.ConsumerMessage, 0, app.conf.BatchSize)
 						if time.Now().Sub(start_time) > refresh_topics_duration {
 							// time to refresh topics
 							log.Info("Refreshing topics")
-							return total_count, nil, false
+							return total_count, nil, false, false
 						}
 					}
 				}
 			case err, more := <-consumer.Errors():
 				if more {
 					err = errwrap.Wrapf("Error happened in kafka consumer: {{err}}", err)
-					return total_count, err, false
+					return total_count, err, false, false
 				}
 			case ntf, more := <-consumer.Notifications():
 				if more {

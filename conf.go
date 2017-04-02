@@ -384,10 +384,10 @@ func (c *GConfig) export() string {
 	return buf.String()
 }
 
-func ReadConfig(directory string) (*GConfig, error) {
+func ReadConfig(dirname string) (*GConfig, error) {
 	var config GConfig = DefaultConf
 	viper.SetConfigName("kafka2influxdb")
-	viper.AddConfigPath(directory)
+	viper.AddConfigPath(dirname)
 	viper.AddConfigPath("/etc/kafka2influxdb")
 	viper.AddConfigPath("/usr/local/etc/kafka2influxdb")
 	err := viper.ReadInConfig()

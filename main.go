@@ -58,15 +58,11 @@ func main() {
 	switch cmd {
 
 	case ping_influx_cmd.FullCommand():
-		config_ptr, err := ReadConfig(*config_fname)
+		app := Kafka2InfluxdbApp{}
+		err := app.reloadConfiguration(*config_fname)
 		if err != nil {
-			log.WithError(err).Fatal("Failed to read configuration file")
+			log.WithError(err).Fatal("Failed to load configuration")
 		}
-		err = config_ptr.check()
-		if err != nil {
-			log.WithError(err).Fatal("Incorrect configuration")
-		}
-		app := Kafka2InfluxdbApp{conf: config_ptr}
 		version, dbnames, users, err := app.pingInfluxDB()
 		if err != nil {
 			log.WithError(err).Fatal("Ping InfluxDB failed")
@@ -114,15 +110,10 @@ func main() {
 		}
 
 	case start_cmd.FullCommand():
-		// read the configuration file
-		config_ptr, err := ReadConfig(*config_fname)
+		app := Kafka2InfluxdbApp{}
+		err := app.reloadConfiguration(*config_fname)
 		if err != nil {
-			log.WithField("error", err).Fatal("Failed to read configuration file")
-		}
-		// check that configuration is OK
-		err = config_ptr.check()
-		if err != nil {
-			log.WithError(err).Fatal("Incorrect configuration")
+			log.WithError(err).Fatal("Failed to load the configuration")
 		}
 		// check we can write to the the desired logfile
 		if len(*logfile_flag) > 0 {
@@ -132,8 +123,6 @@ func main() {
 			}
 			logfile.Close()
 		}
-
-		app := Kafka2InfluxdbApp{conf: config_ptr}
 
 		// check we can connect to InfluxDB
 		_, _, _, err = app.pingInfluxDB()
@@ -176,19 +165,14 @@ func main() {
 				devnullfile.Close()
 			}
 		}
-		do_start_real(&app, *start_pidfile_flag, *syslog_flag, *loglevel_flag, *logfile_flag)
+		do_start_real(&app, *config_fname, *start_pidfile_flag, *syslog_flag, *loglevel_flag, *logfile_flag)
 
 	case check_topics_cmd.FullCommand():
-		config_ptr, err := ReadConfig(*config_fname)
+		app := Kafka2InfluxdbApp{}
+		err := app.reloadConfiguration(*config_fname)
 		if err != nil {
-			log.WithField("error", err).Fatal("Failed to read configuration file")
+			log.WithError(err).Fatal("Failed to load configuration")
 		}
-		err = config_ptr.check()
-		if err != nil {
-			log.WithError(err).Fatal("Incorrect configuration")
-		}
-
-		app := Kafka2InfluxdbApp{conf: config_ptr}
 		topics, err := app.getSourceKafkaTopics()
 		if err != nil {
 			log.WithError(err).Fatal("Error while fetching topics from Kafka")
@@ -205,17 +189,14 @@ func main() {
 		fmt.Println(DefaultConf.export())
 
 	case check_conf_cmd.FullCommand():
-		config_ptr, err := ReadConfig(*config_fname)
+		app := Kafka2InfluxdbApp{}
+		err := app.reloadConfiguration(*config_fname)
 		if err != nil {
-			log.WithField("error", err).Fatal("Failed to read configuration file")
-		}
-		err = config_ptr.check()
-		if err != nil {
-			log.WithError(err).Fatal("Incorrect configuration")
+			log.WithError(err).Fatal("Failed to load configuration")
 		}
 
 		fmt.Println("Configuration looks OK\n")
-		fmt.Println(config_ptr.export())
+		fmt.Println(app.conf.export())
 
 	case install_cmd.FullCommand():
 		if !filepath.IsAbs(*prefix_flag) {
@@ -383,7 +364,7 @@ func main() {
 
 }
 
-func do_start_real(app *Kafka2InfluxdbApp, pidfilename string, use_syslog bool, loglevel string, logfilename string) {
+func do_start_real(app *Kafka2InfluxdbApp, config_dirname string, pidfilename string, use_syslog bool, loglevel string, logfilename string) {
 	var total_count uint64 = 0
 	var err error
 	disable_timestamps := false
@@ -438,11 +419,18 @@ func do_start_real(app *Kafka2InfluxdbApp, pidfilename string, use_syslog bool, 
 
 	// start the consuming loop
 	for {
-		count, err, stopping := app.consume()
+		count, err, reload, stopping := app.consume()
 		total_count += count
 		if err == nil {
 			if stopping {
 				break
+			}
+			if reload {
+				err := app.reloadConfiguration(config_dirname)
+				if err != nil {
+					log.WithError(err).Error("Failed to reload configuration: aborting")
+					break
+				}
 			}
 			pause = app.conf.RetryDelay
 		} else {
