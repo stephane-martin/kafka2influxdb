@@ -1,6 +1,6 @@
 package main
 
-import "fmt"
+//import "fmt"
 import "strconv"
 import "strings"
 import "reflect"
@@ -36,13 +36,11 @@ type Parser interface {
 	Parse(message []byte) (*influx.Point, error)
 }
 
-func NewParser(format string, precision string) (Parser, error) {
+func NewParser(format string, precision string) Parser {
 	if format == "json" {
-		return JsonParser{precision: precision}, nil
-	} else if format == "influx" {
-		return LineProtocolParser{precision: precision}, nil
+		return JsonParser{precision: precision}
 	} else {
-		return nil, fmt.Errorf("Unknown format for points in Kafka")
+		return LineProtocolParser{precision: precision}
 	}
 }
 

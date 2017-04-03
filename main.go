@@ -63,18 +63,12 @@ func main() {
 		if err != nil {
 			log.WithError(err).Fatal("Failed to load configuration")
 		}
-		version, dbnames, users, err := app.pingInfluxDB()
+		versions, err := app.pingInfluxDB()
 		if err != nil {
 			log.WithError(err).Fatal("Ping InfluxDB failed")
 		}
-		fmt.Printf("InfluxDB version %s\n", version)
-		fmt.Println("\nExisting databases:")
-		for _, dbname := range dbnames {
-			fmt.Printf("- %s\n", dbname)
-		}
-		fmt.Println("\nExisting users:")
-		for _, user := range users {
-			fmt.Printf("- %s\n", user)
+		for mapping_name, version := range versions {
+			fmt.Printf("%s => InfluxDB version %s\n", mapping_name, version)
 		}
 
 	case stop_cmd.FullCommand():
@@ -110,7 +104,7 @@ func main() {
 		}
 
 	case start_cmd.FullCommand():
-		app := Kafka2InfluxdbApp{}
+		app := NewApp()
 		err := app.reloadConfiguration(*config_fname)
 		if err != nil {
 			log.WithError(err).Fatal("Failed to load the configuration")
@@ -125,7 +119,7 @@ func main() {
 		}
 
 		// check we can connect to InfluxDB
-		_, _, _, err = app.pingInfluxDB()
+		_, err = app.pingInfluxDB()
 		if err != nil {
 			log.WithError(err).Fatal("Ping InfluxDB failed")
 		}
@@ -165,10 +159,10 @@ func main() {
 				devnullfile.Close()
 			}
 		}
-		do_start_real(&app, *config_fname, *start_pidfile_flag, *syslog_flag, *loglevel_flag, *logfile_flag)
+		do_start_real(app, *config_fname, *start_pidfile_flag, *syslog_flag, *loglevel_flag, *logfile_flag)
 
 	case check_topics_cmd.FullCommand():
-		app := Kafka2InfluxdbApp{}
+		app := NewApp()
 		err := app.reloadConfiguration(*config_fname)
 		if err != nil {
 			log.WithError(err).Fatal("Failed to load configuration")
@@ -186,11 +180,12 @@ func main() {
 		}
 
 	case default_conf_cmd.FullCommand():
-		fmt.Println(DefaultConf.export())
+		fmt.Println(defaultConfiguration().export())
 
 	case check_conf_cmd.FullCommand():
-		app := Kafka2InfluxdbApp{}
+		app := NewApp()
 		err := app.reloadConfiguration(*config_fname)
+
 		if err != nil {
 			log.WithError(err).Fatal("Failed to load configuration")
 		}
@@ -292,7 +287,7 @@ func main() {
 		confpath := filepath.Join(*prefix_flag, "etc", "kafka2influxdb", "kafka2influxdb.toml")
 		if _, err := os.Stat(confpath); os.IsNotExist(err) {
 			os.MkdirAll(filepath.Dir(confpath), 0755)
-			err = ioutil.WriteFile(confpath, []byte(DefaultConf.export()), 0644)
+			err = ioutil.WriteFile(confpath, []byte(defaultConfiguration().export()), 0644)
 			if err != nil {
 				log.WithField("confpath", confpath).WithError(err).Fatal("Failed to write configuration file")
 			} else {

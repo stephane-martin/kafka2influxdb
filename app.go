@@ -6,9 +6,9 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
-	"sync"
 
 	"github.com/Shopify/sarama"
 	cluster "github.com/bsm/sarama-cluster"
@@ -21,6 +21,10 @@ type Kafka2InfluxdbApp struct {
 	conf *GConfig
 }
 
+func NewApp() *Kafka2InfluxdbApp {
+	return &Kafka2InfluxdbApp{conf: NewConfig()}
+}
+
 type Message struct {
 	raw    *sarama.ConsumerMessage
 	parsed *influx.Point
@@ -28,16 +32,16 @@ type Message struct {
 
 func (app *Kafka2InfluxdbApp) reloadConfiguration(dirname string) error {
 	// read the configuration file
-	config_ptr, err := ReadConfig(dirname)
+	new_conf, err := loadConfiguration(dirname)
 	if err != nil {
 		return errwrap.Wrapf("Failed to read the configuration file: {{err}}", err)
 	}
 	// check that configuration is OK
-	err = config_ptr.check()
+	err = new_conf.check()
 	if err != nil {
 		return errwrap.Wrapf("Incorrect configuration: {{err}}", err)
 	}
-	app.conf = config_ptr
+	app.conf = new_conf
 	return nil
 }
 
@@ -75,42 +79,33 @@ func listExistingDatabases(client influx.Client) ([]string, error) {
 	return databases, nil
 }
 
-func (app *Kafka2InfluxdbApp) pingInfluxDB() (version string, dbnames []string, users []string, err error) {
-	dbnames = []string{}
-	users = []string{}
+func (app *Kafka2InfluxdbApp) pingInfluxDB() (map[string]string, error) {
+	versions := map[string]string{}
 
-	influx_config, err := app.conf.getInfluxHTTPConfig(true)
-	if err != nil {
-		log.WithError(err).Error("Can't build InfluxDB configuration")
-		return
+	for mapping_name, topic_conf := range app.conf.TopicConfs {
+
+		client, err := app.conf.getInfluxAdminClientByTopicConf(topic_conf)
+
+		if err != nil {
+			log.WithError(err).Error("Error connecting to InfluxDB")
+			return nil, err
+		}
+		defer client.Close()
+
+		d, version, err := client.Ping(time.Duration(topic_conf.Timeout) * time.Millisecond)
+		if err != nil {
+			log.WithError(err).WithField("duration", d).Error("Ping failed")
+			return nil, err
+		}
+		versions[mapping_name] = version
 	}
-	client, err := influx.NewHTTPClient(influx_config)
-	if err != nil {
-		log.WithError(err).Error("Error connecting to InfluxDB")
-		return
-	}
-	defer client.Close()
-	d, version, err := client.Ping(time.Duration(app.conf.Influxdb.Timeout) * time.Millisecond)
-	if err != nil {
-		log.WithError(err).WithField("duration", d).Error("Ping failed")
-		return
-	}
-	dbnames, err = listExistingDatabases(client)
-	if err != nil {
-		log.WithError(err).Error("Error listing existing databases in InfluxDB")
-		return
-	}
-	users, err = listExistingUsers(client)
-	if err != nil {
-		log.WithError(err).Error("Error listing users in InfluxDB")
-		return
-	}
-	return
+	return versions, nil
 }
 
-func (app *Kafka2InfluxdbApp) createWriteUser() error {
+func (app *Kafka2InfluxdbApp) createWriteUser(topic string) error {
 
-	if app.conf.Influxdb.Username == app.conf.Influxdb.AdminUsername {
+	topic_conf := app.conf.getTopicConf(topic)
+	if topic_conf.Username == topic_conf.AdminUsername {
 		// only one kind of influxdb user was provided
 		// if that user is admin, nothing to do (already exists, right ?)
 		// if that user is not admin, we don't have an admin account to create it
@@ -119,17 +114,11 @@ func (app *Kafka2InfluxdbApp) createWriteUser() error {
 	}
 
 	// connecting to influxDB (as admin)
-	config, err := app.conf.getInfluxHTTPConfig(true)
+	client, err := app.conf.getInfluxAdminClient(topic)
 	if err != nil {
 		log.WithError(err).
-			WithField("function", "createDatabases").
-			Error("Error building configuration for InfluxDB")
-		return err
-	}
-
-	client, err := influx.NewHTTPClient(config)
-	if err != nil {
-		log.WithError(err).
+			WithField("topic", topic).
+			WithField("host", topic_conf.Host).
 			WithField("function", "createWriteUser").
 			Error("Error connecting to InfluxDB")
 		return err
@@ -141,6 +130,8 @@ func (app *Kafka2InfluxdbApp) createWriteUser() error {
 	if err != nil {
 		// will fail if the admin user is not really admin on influxdb
 		log.WithError(err).
+			WithField("topic", topic).
+			WithField("host", topic_conf.Host).
 			WithField("function", "createWriteUser").
 			Error("Error listing users in Influxdb")
 		return err
@@ -148,7 +139,7 @@ func (app *Kafka2InfluxdbApp) createWriteUser() error {
 
 	already_exists := func() bool {
 		for _, existing_user := range existing_users {
-			if existing_user == app.conf.Influxdb.Username {
+			if existing_user == topic_conf.Username {
 				return true
 			}
 		}
@@ -156,81 +147,81 @@ func (app *Kafka2InfluxdbApp) createWriteUser() error {
 	}
 
 	if already_exists() {
-		log.WithField("username", app.conf.Influxdb.Username).
+		log.WithField("username", topic_conf.Username).
+			WithField("topic", topic).
+			WithField("host", topic_conf.Host).
 			Info("User already exists in InfluxDB")
 	} else {
 		// creating new user
 		q := influx.NewQuery(
 			fmt.Sprintf(`CREATE USER "%s" WITH PASSWORD '%s'`,
-				strings.Replace(app.conf.Influxdb.Username, `"`, `\"`, -1),
-				strings.Replace(app.conf.Influxdb.Password, `'`, `\'`, -1)),
+				strings.Replace(topic_conf.Username, `"`, `\"`, -1),
+				strings.Replace(topic_conf.Password, `'`, `\'`, -1)),
 			"", "")
 		resp, err := client.Query(q)
 		if err != nil {
 			log.WithError(err).
-				WithField("username", app.conf.Influxdb.Username).
+				WithField("topic", topic).
+				WithField("host", topic_conf.Host).
+				WithField("username", topic_conf.Username).
 				WithField("function", "createWriteUser").
 				Error("Error creating user in InfluxDB")
 			return errwrap.Wrapf("Failed to create user in InfluxDB: {{err}}", err)
 		} else if resp.Error() != nil {
 			log.WithError(resp.Error()).
-				WithField("username", app.conf.Influxdb.Username).
+				WithField("topic", topic).
+				WithField("host", topic_conf.Host).
+				WithField("username", topic_conf.Username).
 				WithField("function", "createWriteUser").
 				Error("Error creating user in InfluxDB")
 			return errwrap.Wrapf("Failed to create user in InfluxDB: {{err}}", resp.Error())
 		} else {
-			log.WithField("username", app.conf.Influxdb.Username).
+			log.WithField("username", topic_conf.Username).
+				WithField("host", topic_conf.Host).
+				WithField("topic", topic).
 				Info("Created user in InfluxDB")
 		}
 	}
 	return nil
 }
 
-func (app *Kafka2InfluxdbApp) createDatabases(topics []string) error {
-	// connecting to influxDB (as a admin user)
-	config, err := app.conf.getInfluxHTTPConfig(true)
-	if err != nil {
-		log.WithError(err).
-			WithField("function", "createDatabases").
-			Error("Error building configuration for InfluxDB")
-		return err
-	}
+func (app *Kafka2InfluxdbApp) createDatabase(topic string) error {
+	topic_conf := app.conf.getTopicConf(topic)
 
-	client, err := influx.NewHTTPClient(config)
+	client, err := app.conf.getInfluxAdminClient(topic)
 	if err != nil {
 		log.WithError(err).
-			WithField("function", "createDatabases").
+			WithField("topic", topic).
+			WithField("host", topic_conf.Host).
+			WithField("function", "createDatabase").
 			Error("Error connecting to InfluxDB")
 		return err
 	}
 	defer client.Close()
 
-	// list the destination databases in InfluxDB
-	must_exist := app.conf.listTargetDatabases(topics)
+	dbname := topic_conf.DatabaseName
 
 	// list exiting databases
 	existing_databases, err := listExistingDatabases(client)
 	if err != nil {
 		log.WithError(err).
-			WithField("function", "createDatabases").
+			WithField("topic", topic).
+			WithField("host", topic_conf.Host).
+			WithField("function", "createDatabase").
 			Error("Error listing existing databases")
 		return err
 	}
 
-	existing_databases_map := map[string]bool{}
-	for _, dbname := range existing_databases {
-		existing_databases_map[dbname] = true
-	}
-
-	// list the databases that have to be created
-	to_be_created := []string{}
-	for _, dbname := range must_exist {
-		if !existing_databases_map[dbname] {
-			to_be_created = append(to_be_created, dbname)
+	db_already_exists := func() bool {
+		for _, existing := range existing_databases {
+			if existing == dbname {
+				return true
+			}
 		}
+		return false
 	}
 
-	createDatabase := func(dbname string) error {
+	create_database := func() error {
 		q := influx.NewQuery(fmt.Sprintf("CREATE DATABASE %s", dbname), "", "")
 		resp, err := client.Query(q)
 		if err != nil {
@@ -241,38 +232,43 @@ func (app *Kafka2InfluxdbApp) createDatabases(topics []string) error {
 		return nil
 	}
 
-	// create the missing databases
-	for _, dbname := range to_be_created {
-		if err := createDatabase(dbname); err != nil {
+	if db_already_exists() {
+		log.WithField("database", dbname).
+			WithField("topic", topic).
+			WithField("host", topic_conf.Host).
+			Info("Database already exists")
+	} else {
+		err := create_database()
+		if err == nil {
+			log.WithField("database", dbname).
+				WithField("topic", topic).
+				WithField("host", topic_conf.Host).
+				Info("Created database")
+		} else {
 			log.WithError(err).
 				WithField("action", "creating influxdb database").
-				WithField("function", "createDatabases").
+				WithField("function", "createDatabase").
 				WithField("dbname", dbname).
+				WithField("host", topic_conf.Host).
+				WithField("topic", topic).
 				Error("Error creating a database in InfluxDB")
 			return err
-		} else {
-			log.WithField("database", dbname).Info("Created database")
 		}
 	}
 	return nil
 }
 
-func (app *Kafka2InfluxdbApp) grantDatabaseRights(topics []string) {
+func (app *Kafka2InfluxdbApp) grantDatabaseRights(topic string) {
 	// try to grant read and write rights on the target databases to the
 	// "normal" influxdb user
 
-	// connecting to influxDB (as a normal user)
-	config, err := app.conf.getInfluxHTTPConfig(false)
-	if err != nil {
-		log.WithError(err).
-			WithField("function", "grantDatabaseRights").
-			Error("Error building configuration for InfluxDB")
-		return
-	}
+	topic_conf := app.conf.getTopicConf(topic)
 
-	client, err := influx.NewHTTPClient(config)
+	client, err := app.conf.getInfluxClient(topic)
 	if err != nil {
 		log.WithError(err).
+			WithField("topic", topic).
+			WithField("host", topic_conf.Host).
 			WithField("function", "grantDatabaseRights").
 			Error("Error connecting to InfluxDB")
 		return
@@ -284,31 +280,30 @@ func (app *Kafka2InfluxdbApp) grantDatabaseRights(topics []string) {
 	q := influx.NewQuery("SHOW DATABASES", "", "")
 	resp, err := client.Query(q)
 	if err == nil && resp.Error() == nil {
-		log.Info("InfluxDB normal user is in fact admin, no GRANT needs to be performed")
+		log.WithField("topic", topic).
+			WithField("host", topic_conf.Host).
+			Info("InfluxDB normal user is in fact admin, no GRANT needs to be performed")
 		return
 	}
 
 	// the normal user is not an admin
-	log.Info("InfluxDB normal user is not an admin")
+	log.WithField("topic", topic).
+		WithField("host", topic_conf.Host).
+		Info("InfluxDB normal user is not an admin")
 
 	// check that normal user and admin user are different
-	if app.conf.Influxdb.Username == app.conf.Influxdb.AdminUsername {
-		log.Info("No InfluxDB admin user was provided. Can't GRANT rights.")
+	if topic_conf.Username == topic_conf.AdminUsername {
+		log.WithField("topic", topic).
+			WithField("host", topic_conf.Host).
+			Info("No InfluxDB admin user was provided. Can't GRANT rights.")
 		return
 	}
 
-	// connecting to influxDB (as admin user)
-	admin_config, err := app.conf.getInfluxHTTPConfig(true)
+	admin_client, err := app.conf.getInfluxAdminClient(topic)
 	if err != nil {
 		log.WithError(err).
-			WithField("function", "grantDatabaseRights").
-			Error("Error building configuration for InfluxDB")
-		return
-	}
-
-	admin_client, err := influx.NewHTTPClient(admin_config)
-	if err != nil {
-		log.WithError(err).
+			WithField("topic", topic).
+			WithField("host", topic_conf.Host).
 			WithField("function", "grantDatabaseRights").
 			Error("Error connecting to InfluxDB")
 		return
@@ -319,51 +314,49 @@ func (app *Kafka2InfluxdbApp) grantDatabaseRights(topics []string) {
 	q = influx.NewQuery("SHOW DATABASES", "", "")
 	resp, err = admin_client.Query(q)
 	if err != nil || resp.Error() != nil {
-		log.Warn("The provided InfluxDB admin user does not really have admin rights.")
+		log.WithField("topic", topic).
+			WithField("host", topic_conf.Host).
+			Warn("The provided InfluxDB admin user does not really have admin rights.")
 		return
 	}
 
-	// list target databases
-	target_databases := app.conf.listTargetDatabases(topics)
+	dbname := topic_conf.DatabaseName
 
-	for _, dbname := range target_databases {
-		// use admin user to grant rights on the InfluxDB target databases
-		// (the GRANT will succeed even if the target database does not exist)
-		// todo: escaping
-		q_str := fmt.Sprintf("GRANT ALL ON %s to %s", dbname, app.conf.Influxdb.Username)
-		q := influx.NewQuery(q_str, dbname, "")
-		resp, err = admin_client.Query(q)
-		if err != nil {
-			log.WithError(err).
-				WithField("username", app.conf.Influxdb.Username).
-				WithField("database", dbname).
-				Info("Failed to GRANT rights")
-		} else if resp.Error() != nil {
-			log.WithError(resp.Error()).
-				WithField("username", app.conf.Influxdb.Username).
-				WithField("database", dbname).
-				Info("Failed to GRANT rights")
-		} else {
-			log.WithField("database", dbname).
-				WithField("username", app.conf.Influxdb.Username).
-				Info("GRANTed rights")
-		}
+	// use admin user to grant rights on the InfluxDB target database
+	// (the GRANT will succeed even if the target database does not exist)
+	// todo: escaping
+	q_str := fmt.Sprintf("GRANT ALL ON %s to %s", dbname, topic_conf.Username)
+	q = influx.NewQuery(q_str, dbname, "")
+	resp, err = admin_client.Query(q)
+	if err != nil {
+		log.WithError(err).
+			WithField("topic", topic).
+			WithField("username", topic_conf.Username).
+			WithField("host", topic_conf.Host).
+			WithField("database", dbname).
+			Info("Failed to GRANT rights")
+	} else if resp.Error() != nil {
+		log.WithError(resp.Error()).
+			WithField("topic", topic).
+			WithField("username", topic_conf.Username).
+			WithField("host", topic_conf.Host).
+			WithField("database", dbname).
+			Info("Failed to GRANT rights")
+	} else {
+		log.WithField("database", dbname).
+			WithField("topic", topic).
+			WithField("host", topic_conf.Host).
+			WithField("username", topic_conf.Username).
+			Info("GRANTed rights")
 	}
 }
 
-func (app *Kafka2InfluxdbApp) checkDatabases(topics []string) (err error) {
-	// check that all required databases exist and that the influxdb user can connect to them
+func (app *Kafka2InfluxdbApp) checkDatabase(topic string) (err error) {
+	// check that the target database exists and that the influxdb user can connect to it
 
-	// connecting to influxDB (as a normal user)
-	config, err := app.conf.getInfluxHTTPConfig(false)
-	if err != nil {
-		log.WithError(err).
-			WithField("function", "checkDatabases").
-			Error("Error building configuration for InfluxDB")
-		return err
-	}
+	topic_conf := app.conf.getTopicConf(topic)
 
-	client, err := influx.NewHTTPClient(config)
+	client, err := app.conf.getInfluxClient(topic)
 	if err != nil {
 		log.WithError(err).
 			WithField("function", "checkDatabases").
@@ -372,35 +365,22 @@ func (app *Kafka2InfluxdbApp) checkDatabases(topics []string) (err error) {
 	}
 	defer client.Close()
 
-	// list the destination databases in InfluxDB
-	must_exist := app.conf.listTargetDatabases(topics)
+	dbname := topic_conf.DatabaseName
 
-	// try to connect to each DB
-	dbnames_error := []string{}
-	for _, dbname := range must_exist {
-		q := influx.NewQuery("SHOW SERIES", dbname, "")
-		resp, err := client.Query(q)
-		if err != nil || resp.Error() != nil {
-			dbnames_error = append(dbnames_error, dbname)
-			e := err
-			if err == nil {
-				e = resp.Error()
-			}
-			log.WithError(e).
-				WithField("database", dbname).
-				WithField("function", "checkDatabases").
-				Error("Failed to connect")
+	// try to connect to the database
+	q := influx.NewQuery("SHOW SERIES", dbname, "")
+	resp, err := client.Query(q)
+	if err != nil || resp.Error() != nil {
+		if err == nil {
+			err = resp.Error()
 		}
+		log.WithError(err).
+			WithField("database", dbname).
+			WithField("function", "checkDatabases").
+			Error("Failed to connect")
+		return errwrap.Wrapf("Failed to connect to InfluxDB: {{err}}", err)
 	}
-
-	if len(dbnames_error) == 0 {
-		// we can connect to each DB, OK
-		return nil
-	}
-	for _, dbname := range dbnames_error {
-		log.WithField("database", dbname).Error("Not enough rights on an InfluxDB database")
-	}
-	return fmt.Errorf("Error connecting to some databases")
+	return nil
 }
 
 func (app *Kafka2InfluxdbApp) getSourceKafkaTopics() ([]string, error) {
@@ -462,49 +442,50 @@ func (app *Kafka2InfluxdbApp) getSourceKafkaTopics() ([]string, error) {
 }
 
 func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
-	config, err := app.conf.getInfluxHTTPConfig(false)
-	if err != nil {
-		return err
-	}
 
-	client, err := influx.NewHTTPClient(config)
-	if err != nil {
-		return errwrap.Wrapf("Failed to create the InfluxDB client: {{err}}", err)
-	}
-	defer client.Close()
-
-	log.WithField("nb_points", len(pack)).Info("Points to push to InfluxDB")
+	log.WithField("nb_points", len(pack)).Info("Number of points to push to InfluxDB")
 	topicBatchMap := map[string]influx.BatchPoints{}
 
 	for _, msg := range pack {
-		if _, ok := topicBatchMap[msg.raw.Topic]; !ok {
+		topic := msg.raw.Topic
+		topic_conf := app.conf.getTopicConf(topic)
+		if _, ok := topicBatchMap[topic]; !ok {
 			bp, _ := influx.NewBatchPoints(
 				influx.BatchPointsConfig{
-					Database:        app.conf.topic2dbname(msg.raw.Topic),
-					Precision:       app.conf.Influxdb.Precision,
-					RetentionPolicy: app.conf.Influxdb.RetentionPolicy,
+					Database:        topic_conf.DatabaseName,
+					Precision:       topic_conf.Precision,
+					RetentionPolicy: topic_conf.RetentionPolicy,
 				},
 			)
-			topicBatchMap[msg.raw.Topic] = bp
+			topicBatchMap[topic] = bp
 		}
 		if msg.parsed != nil {
-			topicBatchMap[msg.raw.Topic].AddPoint(msg.parsed)
+			topicBatchMap[topic].AddPoint(msg.parsed)
 		}
 	}
 	for topic, bp := range topicBatchMap {
+
 		dbname := bp.Database()
 		l := len(bp.Points())
 
 		if l > 0 {
-			err := client.Write(bp)
+			client, err := app.conf.getInfluxClient(topic)
+			host := app.conf.getTopicConf(topic).Host
+			if err != nil {
+				return errwrap.Wrapf("Failed to create the InfluxDB client: {{err}}", err)
+			}
+			defer client.Close()
+			err = client.Write(bp)
 			if err != nil {
 				log.WithError(err).
+					WithField("host", host).
 					WithField("database", dbname).
 					WithField("topic", topic).
 					Error("Error happened when writing points to InfluxDB")
 				return errwrap.Wrapf("Writing points to InfluxDB failed: {{err}}", err)
 			} else {
 				log.WithField("nb_points", l).
+					WithField("host", host).
 					WithField("database", dbname).
 					WithField("topic", topic).
 					Info("Points written to InfluxDB")
@@ -533,32 +514,33 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload b
 		return 0, err, false, false
 	}
 
-	if app.conf.Influxdb.Auth {
-		err = app.createWriteUser()
+	app.conf.cacheTopicsConfs(topics)
+
+	for _, topic := range topics {
+		topic_conf := app.conf.getTopicConf(topic)
+
+		if topic_conf.Auth {
+			err = app.createWriteUser(topic)
+			if err != nil {
+				return 0, err, false, false
+			}
+		}
+
+		if topic_conf.CreateDatabases {
+			err = app.createDatabase(topic)
+			if err != nil {
+				return 0, err, false, false
+			}
+		}
+
+		if topic_conf.Auth {
+			app.grantDatabaseRights(topic)
+		}
+
+		err = app.checkDatabase(topic)
 		if err != nil {
 			return 0, err, false, false
 		}
-	}
-
-	if app.conf.Influxdb.CreateDatabases {
-		err = app.createDatabases(topics)
-		if err != nil {
-			return 0, err, false, false
-		}
-	}
-
-	if app.conf.Influxdb.Auth {
-		app.grantDatabaseRights(topics)
-	}
-
-	err = app.checkDatabases(topics)
-	if err != nil {
-		return 0, err, false, false
-	}
-
-	parser, err := NewParser(app.conf.Kafka.Format, app.conf.Influxdb.Precision)
-	if err != nil {
-		return 0, err, false, false
 	}
 
 	sarama_conf, _ := app.conf.getSaramaClusterConf()
@@ -586,12 +568,15 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload b
 	parsed_messages := make(chan Message, app.conf.BatchSize)
 	buckets := make(chan []Message, 100)
 	push_errors := make(chan error, 100)
-	
+
 	var parser_workers_wg sync.WaitGroup
 	var push_worker_wg sync.WaitGroup
 
 	parse_worker := func() {
 		for msg := range raw_messages {
+			topic := msg.Topic
+			topic_conf := app.conf.getTopicConf(topic)
+			parser := NewParser(topic_conf.Format, topic_conf.Precision)
 			point, err := parser.Parse(msg.Value)
 			if err != nil {
 				log.WithError(err).
@@ -611,10 +596,11 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload b
 				push_errors <- err
 				continue
 			}
-
+			stash := cluster.NewOffsetStash()
 			for _, m := range bucket {
-				consumer.MarkOffset(m.raw, "")
+				stash.MarkOffset(m.raw, "")
 			}
+			consumer.MarkOffsets(stash)
 			err = consumer.CommitOffsets()
 			if err != nil {
 				push_errors <- errwrap.Wrapf("Error happened while committing offsets to kafka: {{err}}", err)

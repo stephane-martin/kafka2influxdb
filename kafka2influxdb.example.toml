@@ -1,7 +1,9 @@
 # kafka2influxdb configuration
 # by default, you can put it in "/etc/kafka2influxdb/kafka2influxdb.toml"
 
-# how many metrics to send to InfluxDB in one batch (default 5000)
+# will get "batch_size" metrics as a batch from Kafka and push them to
+# influxdb hosts
+# default 5000
 batch_size = 5000
 
 # send a batch of metrics to InfluxDB after that duration, even if there are
@@ -31,9 +33,34 @@ logformat = "text"
 # default: 30000
 retry_delay_ms = 30000
 
+# "mappings" associate Kafka topic names (can be globs) with InfluxDB
+# configurations.
+# - on the left side, specify a Kafka topic glob
+# - on the right side, specify the ID of the matching "topic_conf"
 
-[influxdb]
-# InfluxDB host (mandatory)
+# When a Kafka message will be push to InfluxDB as a measurement, the mappings
+# will be tried in the provided order. So you should specify mappings with
+# a precise glob first, and the default mapping ("*") last.
+
+# You must specify one mapping per [[mapping]] section (TOML syntax...)
+
+# default mapping: "*" => "default"
+
+[[mapping]]
+onetopic                             = "default"
+[[mapping]]
+anothertopic                         = "default"
+[[mapping]]
+"*webmail*"                          = "web"
+[[mapping]]
+"*ldap*"                             = "directories"
+[[mapping]]
+"*"                                  = "default"
+
+# The `topic_conf.default` section specify the default influxdb configuration.
+# You can override the paramaters in further "topic_conf.any" sections
+[topic_conf.default]
+# InfluxDB host (default "http://influxdb:8086")
 host = "http://influxdb:8086"
 # Use authentication for InfluxDB (default false)
 # If true, you need to provide at least an admin user or a normal user for InfluxDB connection
@@ -56,8 +83,10 @@ precision = "ns"
 retention_policy = ""
 # connection timeout to InfluxDB (ms, default 5000)
 timeout = 5000
+# InfluxDB database to write to (default "default_db")
+dbname = "maindb"
 
-[influxdb.tls]
+[topic_conf.default.tls]
 # Whether to use TLS to connect to InfluxDB (default false)
 enable = false
 # Path to the CA certificate that's used to verify the InfluxDB server's certificate (optional)
@@ -69,28 +98,19 @@ private_key = ""
 # if true, do not check the server certificate (eg. for self-signed certificate, default false)
 insecure = false
 
+[topic_conf.directories]
+dbname = "directories_metrics"
+# other params will be inherited from [topic_conf.default]
 
-# "mappings" define the databases where to write the metrics in InfluxDB
-# on the left side, specify a Kafka topic glob
-# on the right side, specify an InfluxDB database name
-# if the database name is empty, the topic name will be used
+[topic_conf.web]
+dbname = "webapps"
+host = "http://anotherhost:8086"
+[topic_conf.web.tls]
+enable = true
+certificate_authority = "/path/to/CA.pem"
+certificate = "/path/to/client/cert.pem"
+private_key = "/path/to/client/private/key"
 
-# you must specify one mapping per [[mapping]] section (TOML syntax...)
-
-# When a Kafka message will be push to InfluxDB as a measurement, the mappings will be tried in the provided order.
-
-# no default, mandatory
-
-[[mapping]]
-onetopic                             = "generic"
-[[mapping]]
-anothertopic                         = "generic"
-[[mapping]]
-"*pgsql*"                            = "dbms"
-[[mapping]]
-"*webmail*"                          = "web"
-[[mapping]]
-"*"                                  = "generic"
 
 [kafka]
 # the list of kafka brokers to connect to (default: ["kafka1", "kafka2", "kafka3"]
