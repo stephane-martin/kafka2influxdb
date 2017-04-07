@@ -1,0 +1,22 @@
+[Unit]
+Description=kafka2influxdb
+Documentation=https://github.com/stephane-martin/kafka2influxdb
+ConditionPathExists=/etc/kafka2influxdb/kafka2influxdb.toml
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/default/kafka2influxdb
+User=_kafka2influxdb
+Group=_kafka2influxdb
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=true
+NoNewPrivileges=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ExecStart=/usr/local/bin/kafka2influxdb --config="/etc/kafka2influxdb" start --logfile=$LOGFILE --loglevel=$LOGLEVEL 
+KillMode=process
+KillSignal=SIGTERM
+TimeoutSec=10
+
+
