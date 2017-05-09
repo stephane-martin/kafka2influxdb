@@ -91,13 +91,24 @@ func (app *Kafka2InfluxdbApp) pingInfluxDB() (map[string]string, error) {
 			return nil, err
 		}
 		defer client.Close()
-
-		d, version, err := client.Ping(time.Duration(topic_conf.Timeout) * time.Millisecond)
-		if err != nil {
-			log.WithError(err).WithField("duration", d).Error("Ping failed")
-			return nil, err
+		
+		maxPause := 30
+		pause := 2
+		for {
+			d, version, err := client.Ping(time.Duration(topic_conf.Timeout) * time.Millisecond)
+			if err != nil {
+				log.WithError(err).WithField("duration", d).Error("Ping failed")
+				log.WithField("duration", pause).Info("Pausing")
+				time.Sleep(time.Duration(pause) * time.Second)
+				pause += 2
+				if pause > maxPause {
+					pause = maxPause
+				}
+			} else {
+				versions[mapping_name] = version
+				break
+			}
 		}
-		versions[mapping_name] = version
 	}
 	return versions, nil
 }
