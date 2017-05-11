@@ -516,6 +516,11 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload b
 
 	app.conf.cacheTopicsConfs(topics)
 
+	_, err = app.pingInfluxDB()
+	if err != nil {
+		return 0, err, false, false
+	}
+
 	for _, topic := range topics {
 		topic_conf := app.conf.getTopicConf(topic)
 
