@@ -481,8 +481,10 @@ func (w *ConfigurationWatcher) Watch() {
 				} else {
 					running = false
 				}
-			case err := <-w.watcher.Errors:
-				log.WithError(err).Error("Watcher error")
+			case err, more := <-w.watcher.Errors:
+				if more {
+					log.WithError(err).Error("Watcher error")
+				}
 			}
 		}
 	}()
