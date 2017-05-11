@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"time"
 	"io/ioutil"
 	"log/syslog"
 	"os"
@@ -11,15 +10,16 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/Sirupsen/logrus"
 	logrus_syslog "github.com/Sirupsen/logrus/hooks/syslog"
 	"github.com/alecthomas/kingpin"
 	"github.com/facebookgo/pidfile"
-	"github.com/stephane-martin/go-findinit"
 	"github.com/shirou/gopsutil/process"
+	findinit "github.com/stephane-martin/go-findinit"
 )
 
 var log *logrus.Logger
@@ -104,6 +104,7 @@ func main() {
 		}
 
 	case start_cmd.FullCommand():
+		var versions map[string]string
 		app := NewApp()
 		err := app.reloadConfiguration(*config_fname)
 		if err != nil {
@@ -119,9 +120,14 @@ func main() {
 		}
 
 		// check we can connect to InfluxDB
-		_, err = app.pingInfluxDB()
+		versions, err = app.pingInfluxDB()
 		if err != nil {
-			log.WithError(err).Fatal("Ping InfluxDB failed")
+			log.WithError(err).Error("Initial ping to InfluxDB failed")
+		} else {
+			for mapping_name, version := range versions {
+				log.WithField("version", version).WithField("mapping", mapping_name).Info("InfluxDB ping")
+				fmt.Printf("%s => InfluxDB version %s\n", mapping_name, version)
+			}
 		}
 
 		if *daemonize_flag {
@@ -377,7 +383,7 @@ func do_start_real(app *Kafka2InfluxdbApp, config_dirname string, pidfilename st
 
 	if app.conf.Logformat == "json" {
 		log.Formatter = &logrus.JSONFormatter{}
-	} else {		
+	} else {
 		log.Formatter = &logrus.TextFormatter{DisableColors: true, DisableTimestamp: disable_timestamps}
 	}
 
@@ -437,7 +443,7 @@ func do_start_real(app *Kafka2InfluxdbApp, config_dirname string, pidfilename st
 			if app.conf.RetryDelay > 0 {
 				log.WithField("duration", pause).Info("Pausing")
 				time.Sleep(time.Millisecond * time.Duration(pause))
-				pause *= 2							
+				pause *= 2
 			}
 		}
 	}
