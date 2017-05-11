@@ -164,10 +164,10 @@
 			"revisionTime": "2015-06-12T19:16:47Z"
 		},
 		{
-			"checksumSHA1": "D1iQuhVl+JB2+WCjsspnlXQCPnM=",
+			"checksumSHA1": "x2Km0Qy3WgJJnV19Zv25VwTJcBM=",
 			"path": "github.com/fsnotify/fsnotify",
-			"revision": "ff7bc41d4007f67e5456703c34342df4e0113f64",
-			"revisionTime": "2017-03-21T12:55:22Z"
+			"revision": "4da3e2cfbabc9f751898f250b49f2439785783a1",
+			"revisionTime": "2017-03-29T04:21:07Z"
 		},
 		{
 			"checksumSHA1": "wDZdTaY9JiqqqnF4c3pHP71nWmk=",
