@@ -126,7 +126,6 @@ func main() {
 		} else {
 			for mapping_name, version := range versions {
 				log.WithField("version", version).WithField("mapping", mapping_name).Info("InfluxDB ping")
-				fmt.Printf("%s => InfluxDB version %s\n", mapping_name, version)
 			}
 		}
 
