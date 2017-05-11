@@ -6,6 +6,7 @@ import (
 	"fmt"
 	//"io/ioutil"
 	"math"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/Shopify/sarama"
 	cluster "github.com/bsm/sarama-cluster"
+	"github.com/fsnotify/fsnotify"
 	"github.com/gobwas/glob"
 	"github.com/hashicorp/errwrap"
 	"github.com/hashicorp/go-version"
@@ -43,6 +45,7 @@ type GConfig struct {
 	Mapping          []map[string]string  `mapstructure:"mapping" toml:"mapping"`
 	Kafka            KafkaConf            `mapstructure:"kafka" toml:"kafka"`
 	TopicConfs       map[string]TopicConf `mapstructure:"topic_conf" toml:"topic_conf"`
+	ConfigFilename   string               `toml:"-"`
 }
 
 type TopicConf struct {
@@ -436,6 +439,62 @@ func set_defaults(v *viper.Viper) {
 	v.SetDefault("mapping", []map[string]string{default_mapping})
 }
 
+type ConfigurationWatcher struct {
+	filename string
+	watcher  *fsnotify.Watcher
+	stopping chan bool
+}
+
+func NewConfigurationWatcher(filename string) *ConfigurationWatcher {
+	c := ConfigurationWatcher{filename: filename}
+	return &c
+}
+
+func (w *ConfigurationWatcher) Watch() {
+	if w.stopping != nil {
+		return
+	}
+	var err error
+	w.watcher, err = fsnotify.NewWatcher()
+	if err != nil {
+		log.WithError(err).Error("Error happened trying to watch configuration file")
+		return
+	}
+
+	// StopWatch will close w.stopping. When that happens, Watch() will return. The defer
+	// will close the watcher. Closing the watcher closes the event chan, and makes
+	// the goroutine end.
+	defer w.watcher.Close()
+	w.stopping = make(chan bool)
+
+	go func() {
+		running := true
+		for running {
+			select {
+			case event, more := <-w.watcher.Events:
+				if more {
+					if filepath.Clean(event.Name) == w.filename {
+						if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
+							SighupMyself()
+						}
+					}
+				} else {
+					running = false
+				}
+			case err := <-w.watcher.Errors:
+				log.WithError(err).Error("Watcher error")
+			}
+		}
+	}()
+
+	w.watcher.Add(filepath.Dir(w.filename))
+	<-w.stopping
+}
+
+func (w *ConfigurationWatcher) StopWatch() {
+	close(w.stopping)
+}
+
 func loadConfiguration(dirname string) (*GConfig, error) {
 	v := viper.New()
 	set_defaults(v)
@@ -492,7 +551,7 @@ func loadConfiguration(dirname string) (*GConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	c.ConfigFilename = filepath.Clean(v.ConfigFileUsed())
 	return c, nil
 }
 

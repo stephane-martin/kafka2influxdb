@@ -558,11 +558,19 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload b
 
 	log.WithField("topics", strings.Join(topics, ",")).Info("Consuming these topics")
 
-	stopping_signals := make(chan os.Signal, 1)
+	stopping_signals := make(chan os.Signal, 10)
 	signal.Notify(stopping_signals, syscall.SIGTERM, syscall.SIGINT)
+	defer func() {
+		signal.Stop(stopping_signals)
+		close(stopping_signals)
+	}()
 
-	reload_signals := make(chan os.Signal, 1)
+	reload_signals := make(chan os.Signal, 10)
 	signal.Notify(reload_signals, syscall.SIGHUP)
+	defer func() {
+		signal.Stop(reload_signals)
+		close(reload_signals)
+	}()
 
 	pack_of_messages := make([]Message, 0, app.conf.BatchSize)
 	last_push = time.Now()

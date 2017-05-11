@@ -7,6 +7,7 @@ import (
 	"log/syslog"
 	"os"
 	"os/exec"
+	"os/signal"
 	"os/user"
 	"path/filepath"
 	"strconv"
@@ -28,6 +29,14 @@ func init() {
 	log = logrus.New()
 }
 
+func SighupMyself() {
+	p, _ := os.FindProcess(os.Getpid())
+	err := p.Signal(syscall.SIGHUP)
+	if err != nil {
+		log.WithError(err).Error("Error sending SIGHUP to self")
+	}
+}
+
 var (
 	kapp = kingpin.New("kafka2influxdb", "Get metrics from Kafka and push them to InfluxDB")
 
@@ -44,6 +53,7 @@ var (
 	logfile_flag       = start_cmd.Flag("logfile", "write logs to some file instead of stdout/stderr").Default("").String()
 	loglevel_flag      = start_cmd.Flag("loglevel", "logging level").Default("info").String()
 	start_pidfile_flag = start_cmd.Flag("pidfile", "if specified, write PID file there").Default("").String()
+	watch_config_flag  = start_cmd.Flag("watchconf", "if specified, kafka2influxdb will reload itself on configuration file change").Default("false").Bool()
 
 	stop_cmd          = kapp.Command("stop", "stop influx2influxdb")
 	stop_pidfile_flag = stop_cmd.Flag("pidfile", "use this pidfile to find the process to kill").Default("").String()
@@ -367,7 +377,10 @@ func main() {
 func do_start_real(app *Kafka2InfluxdbApp, config_dirname string, pidfilename string, use_syslog bool, loglevel string, logfilename string) {
 	var total_count uint64 = 0
 	var err error
+	var watcher *ConfigurationWatcher
 	disable_timestamps := false
+
+	signal.Ignore(syscall.SIGHUP)
 
 	if use_syslog {
 		// also write logs to syslog
@@ -420,7 +433,16 @@ func do_start_real(app *Kafka2InfluxdbApp, config_dirname string, pidfilename st
 
 	// start the consuming loop
 	for {
+
+		if *watch_config_flag {
+			watcher = NewConfigurationWatcher(app.conf.ConfigFilename)
+			go func() { watcher.Watch() }()
+		}
 		count, err, reload, stopping := app.consume()
+		if *watch_config_flag {
+			watcher.StopWatch()
+		}
+
 		total_count += count
 		if err == nil {
 			if stopping {
