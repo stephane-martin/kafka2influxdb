@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	//"io/ioutil"
+	"errors"
 	"math"
 	"path/filepath"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	cluster "github.com/bsm/sarama-cluster"
 	"github.com/fsnotify/fsnotify"
 	"github.com/gobwas/glob"
+	consul_api "github.com/hashicorp/consul/api"
 	"github.com/hashicorp/errwrap"
 	"github.com/hashicorp/go-version"
 	influx "github.com/influxdata/influxdb/client/v2"
@@ -24,9 +26,7 @@ import (
 )
 
 func NewConfig() *GConfig {
-	kafka_tls_conf := KafkaTLSConf{}
-	kafka_sasl_conf := KafkaSASLConf{}
-	kafka_conf := KafkaConf{Brokers: []string{}, TLS: kafka_tls_conf, SASL: kafka_sasl_conf}
+	kafka_conf := KafkaConf{Brokers: []string{}}
 	return &GConfig{
 		Topics:     []string{},
 		Mapping:    []map[string]string{},
@@ -37,7 +37,6 @@ func NewConfig() *GConfig {
 
 type GConfig struct {
 	RetryDelay       uint32               `mapstructure:"retry_delay_ms" toml:"retry_delay_ms"`
-	Logformat        string               `mapstructure:"logformat" toml:"logformat"`
 	BatchSize        uint32               `mapstructure:"batch_size" toml:"batch_size"`
 	BatchMaxDuration uint32               `mapstructure:"batch_max_duration" toml:"batch_max_duration"`
 	Topics           []string             `mapstructure:"topics" toml:"topics"`
@@ -49,23 +48,19 @@ type GConfig struct {
 }
 
 type TopicConf struct {
-	Host            string        `mapstructure:"host" toml:"host"`
-	Auth            bool          `mapstructure:"auth" toml:"auth"`
-	Username        string        `mapstructure:"username" toml:"username"`
-	Password        string        `mapstructure:"password" toml:"password"`
-	CreateDatabases bool          `mapstructure:"create_databases" toml:"create_databases"`
-	AdminUsername   string        `mapstructure:"admin_username" toml:"admin_username"`
-	AdminPassword   string        `mapstructure:"admin_password" toml:"admin_password"`
-	Precision       string        `mapstructure:"precision" toml:"precision"`
-	RetentionPolicy string        `mapstructure:"retention_policy" toml:"retention_policy"`
-	Timeout         uint32        `mapstructure:"timeout" toml:"timeout"`
-	TLS             InfluxTLSConf `mapstructure:"tls" toml:"tls"`
-	DatabaseName    string        `mapstructure:"dbname" toml:"dbname"`
-	Format          string        `mapstructure:"format" toml:"format"`
-}
-
-type InfluxTLSConf struct {
-	Enable               bool   `mapstructure:"enable" toml:"enable"`
+	Host                 string `mapstructure:"host" toml:"host"`
+	Auth                 bool   `mapstructure:"auth" toml:"auth"`
+	Username             string `mapstructure:"username" toml:"username"`
+	Password             string `mapstructure:"password" toml:"password"`
+	CreateDatabases      bool   `mapstructure:"create_databases" toml:"create_databases"`
+	AdminUsername        string `mapstructure:"admin_username" toml:"admin_username"`
+	AdminPassword        string `mapstructure:"admin_password" toml:"admin_password"`
+	Precision            string `mapstructure:"precision" toml:"precision"`
+	RetentionPolicy      string `mapstructure:"retention_policy" toml:"retention_policy"`
+	Timeout              uint32 `mapstructure:"timeout" toml:"timeout"`
+	DatabaseName         string `mapstructure:"dbname" toml:"dbname"`
+	Format               string `mapstructure:"format" toml:"format"`
+	TlsEnable            bool   `mapstructure:"tls_enable" toml:"tls_enable"`
 	CertificateAuthority string `mapstructure:"certificate_authority" toml:"certificate_authority"`
 	Certificate          string `mapstructure:"certificate" toml:"certificate"`
 	PrivateKey           string `mapstructure:"private_key" toml:"private_key"`
@@ -73,27 +68,19 @@ type InfluxTLSConf struct {
 }
 
 type KafkaConf struct {
-	Brokers       []string `mapstructure:"brokers" toml:"brokers"`
-	ClientID      string   `mapstructure:"client_id" toml:"client_id"`
-	ConsumerGroup string   `mapstructure:"consumer_group" toml:"consumer_group"`
-	Version       string   `mapstructure:"version" toml:"version"`
-	cVersion      sarama.KafkaVersion
-	TLS           KafkaTLSConf  `mapstructure:"tls" toml:"tls"`
-	SASL          KafkaSASLConf `mapstructure:"sasl" toml:"sasl"`
-}
-
-type KafkaTLSConf struct {
-	Enable               bool   `mapstructure:"enable" toml:"enable"`
-	CertificateAuthority string `mapstructure:"certificate_authority" toml:"certificate_authority"`
-	Certificate          string `mapstructure:"certificate" toml:"certificate"`
-	PrivateKey           string `mapstructure:"private_key" toml:"private_key"`
-	InsecureSkipVerify   bool   `mapstructure:"insecure" toml:"insecure"`
-}
-
-type KafkaSASLConf struct {
-	Enable   bool   `mapstructure:"enable" toml:"enable"`
-	Username string `mapstructure:"username" toml:"username"`
-	Password string `mapstructure:"password" toml:"password"`
+	Brokers              []string `mapstructure:"brokers" toml:"brokers"`
+	ClientID             string   `mapstructure:"client_id" toml:"client_id"`
+	ConsumerGroup        string   `mapstructure:"consumer_group" toml:"consumer_group"`
+	Version              string   `mapstructure:"version" toml:"version"`
+	TlsEnable            bool     `mapstructure:"tls_enable" toml:"tls_enable"`
+	CertificateAuthority string   `mapstructure:"certificate_authority" toml:"certificate_authority"`
+	Certificate          string   `mapstructure:"certificate" toml:"certificate"`
+	PrivateKey           string   `mapstructure:"private_key" toml:"private_key"`
+	InsecureSkipVerify   bool     `mapstructure:"insecure" toml:"insecure"`
+	SaslEnable           bool     `mapstructure:"sasl_enable" toml:"sasl_enable"`
+	SaslUsername         string   `mapstructure:"sasl_username" toml:"sasl_username"`
+	SaslPassword         string   `mapstructure:"sasl_password" toml:"sasl_password"`
+	cVersion             sarama.KafkaVersion
 }
 
 func normalize(s string) string {
@@ -123,14 +110,11 @@ func (conf *GConfig) sanitize() {
 		conf.TopicConfs[mapping_name] = topic_conf
 	}
 
-	conf.Logformat = normalize(conf.Logformat)
-	// todo: sanitize topics
-
 	// todo: sanitize brokers
 	conf.Kafka.ClientID = strings.Trim(conf.Kafka.ClientID, " ")
 	conf.Kafka.ConsumerGroup = strings.Trim(conf.Kafka.ConsumerGroup, " ")
 	conf.Kafka.Version = strings.Trim(conf.Kafka.Version, " ")
-	conf.Kafka.SASL.Username = strings.Trim(conf.Kafka.SASL.Username, " ")
+	conf.Kafka.SaslUsername = strings.Trim(conf.Kafka.SaslUsername, " ")
 
 }
 
@@ -169,10 +153,6 @@ func (conf *GConfig) check() error {
 		return fmt.Errorf("Kafka is not recent enough. Needs at least 0.9")
 	}
 
-	if !(conf.Logformat == "json" || conf.Logformat == "text") {
-		return fmt.Errorf("Logformat must be 'json' or 'text'")
-	}
-
 	if len(conf.Topics) == 0 {
 		return fmt.Errorf("Provide a list of kafka topics to consume from")
 	}
@@ -195,9 +175,9 @@ func (conf *GConfig) check() error {
 		"h":  true,
 	}
 
-	for _, topic_conf := range conf.TopicConfs {
+	for t, topic_conf := range conf.TopicConfs {
 		if !(topic_conf.Format == "json" || topic_conf.Format == "influx") {
-			return fmt.Errorf("Kafka format must be 'influx' or 'json'")
+			return fmt.Errorf("Kafka format must be 'influx' or 'json', but is '%s' for topic conf '%s'", topic_conf.Format, t)
 		}
 		if topic_conf.Auth {
 			if len(topic_conf.Username) == 0 || len(topic_conf.Password) == 0 {
@@ -231,12 +211,12 @@ func (conf *GConfig) getInfluxConfigByTopicConf(topic_conf TopicConf, admin bool
 	var tlsConfigPtr *tls.Config = nil
 	var err error
 
-	if topic_conf.TLS.Enable {
+	if topic_conf.TlsEnable {
 		tlsConfigPtr, err = GetTLSConfig(
-			topic_conf.TLS.Certificate,
-			topic_conf.TLS.PrivateKey,
-			topic_conf.TLS.CertificateAuthority,
-			topic_conf.TLS.InsecureSkipVerify,
+			topic_conf.Certificate,
+			topic_conf.PrivateKey,
+			topic_conf.CertificateAuthority,
+			topic_conf.InsecureSkipVerify,
 		)
 		if err != nil {
 			return influx.HTTPConfig{}, errwrap.Wrapf("Failed to understand InfluxDB TLS configuration: {{err}}", err)
@@ -258,7 +238,7 @@ func (conf *GConfig) getInfluxConfigByTopicConf(topic_conf TopicConf, admin bool
 			Username:           username,
 			Password:           password,
 			Timeout:            time.Duration(topic_conf.Timeout) * time.Millisecond,
-			InsecureSkipVerify: topic_conf.TLS.InsecureSkipVerify,
+			InsecureSkipVerify: topic_conf.InsecureSkipVerify,
 			TLSConfig:          tlsConfigPtr,
 		}, nil
 	}
@@ -266,7 +246,7 @@ func (conf *GConfig) getInfluxConfigByTopicConf(topic_conf TopicConf, admin bool
 	return influx.HTTPConfig{
 		Addr:               topic_conf.Host,
 		Timeout:            time.Duration(topic_conf.Timeout) * time.Millisecond,
-		InsecureSkipVerify: topic_conf.TLS.InsecureSkipVerify,
+		InsecureSkipVerify: topic_conf.InsecureSkipVerify,
 		TLSConfig:          tlsConfigPtr,
 	}, nil
 }
@@ -284,12 +264,12 @@ func (c *GConfig) getSaramaConf() (*sarama.Config, error) {
 	conf.Version = c.Kafka.cVersion
 	conf.ChannelBufferSize = int(2 * c.BatchSize)
 
-	if c.Kafka.TLS.Enable {
+	if c.Kafka.TlsEnable {
 		tlsConfigPtr, err = GetTLSConfig(
-			c.Kafka.TLS.Certificate,
-			c.Kafka.TLS.PrivateKey,
-			c.Kafka.TLS.CertificateAuthority,
-			c.Kafka.TLS.InsecureSkipVerify,
+			c.Kafka.Certificate,
+			c.Kafka.PrivateKey,
+			c.Kafka.CertificateAuthority,
+			c.Kafka.InsecureSkipVerify,
 		)
 		if err != nil {
 			return nil, errwrap.Wrapf("Failed to understand Kafka TLS configuration: {{err}}", err)
@@ -298,11 +278,11 @@ func (c *GConfig) getSaramaConf() (*sarama.Config, error) {
 		conf.Net.TLS.Config = tlsConfigPtr
 	}
 
-	if c.Kafka.SASL.Enable {
+	if c.Kafka.SaslEnable {
 		conf.Net.SASL.Enable = true
 		conf.Net.SASL.Handshake = true
-		conf.Net.SASL.User = c.Kafka.SASL.Username
-		conf.Net.SASL.Password = c.Kafka.SASL.Password
+		conf.Net.SASL.User = c.Kafka.SaslUsername
+		conf.Net.SASL.Password = c.Kafka.SaslPassword
 	}
 
 	return conf, nil
@@ -393,52 +373,6 @@ func (c *GConfig) export() string {
 	return buf.String()
 }
 
-func set_defaults(v *viper.Viper) {
-	v.SetDefault("retry_delay_ms", 30000)
-	v.SetDefault("logformat", "text")
-	v.SetDefault("batch_size", 5000)
-	v.SetDefault("batch_max_duration", 60000)
-	v.SetDefault("topics", []string{"metrics_*"})
-	v.SetDefault("refresh_topics", 300000)
-
-	v.SetDefault("kafka.brokers", []string{"kafka1", "kafka2", "kafka3"})
-	v.SetDefault("kafka.client_id", "kafka2influxdb")
-	v.SetDefault("kafka.consumer_group", "kafka2influxdb-cg")
-	v.SetDefault("kafka.version", "0.9.0.0")
-
-	v.SetDefault("kafka.tls.enable", false)
-	v.SetDefault("kafka.tls.certificate_authority", "")
-	v.SetDefault("kafka.tls.certificate", "")
-	v.SetDefault("kafka.tls.private_key", "")
-	v.SetDefault("kafka.tls.insecure", false)
-
-	v.SetDefault("kafka.sasl.enable", false)
-	v.SetDefault("kafka.sasl.username", "")
-	v.SetDefault("kafka.sasl.password", "")
-
-	v.SetDefault("topic_conf.default.host", "http://influxdb:8086")
-	v.SetDefault("topic_conf.default.auth", false)
-	v.SetDefault("topic_conf.default.username", "")
-	v.SetDefault("topic_conf.default.password", "")
-	v.SetDefault("topic_conf.default.create_databases", false)
-	v.SetDefault("topic_conf.default.admin_username", "")
-	v.SetDefault("topic_conf.default.admin_password", "")
-	v.SetDefault("topic_conf.default.precision", "ns")
-	v.SetDefault("topic_conf.default.retention_policy", "")
-	v.SetDefault("topic_conf.default.timeout", 5000)
-	v.SetDefault("topic_conf.default.dbname", "default_db")
-	v.SetDefault("topic_conf.default.format", "json")
-
-	v.SetDefault("topic_conf.default.tls.enable", false)
-	v.SetDefault("topic_conf.default.tls.certificate_authority", "")
-	v.SetDefault("topic_conf.default.tls.certificate", "")
-	v.SetDefault("topic_conf.default.tls.private_key", "")
-	v.SetDefault("topic_conf.default.tls.insecure", false)
-
-	default_mapping := map[string]string{"*": "default"}
-	v.SetDefault("mapping", []map[string]string{default_mapping})
-}
-
 type ConfigurationWatcher struct {
 	filename string
 	watcher  *fsnotify.Watcher
@@ -468,8 +402,8 @@ func (w *ConfigurationWatcher) Watch() {
 	w.stopping = make(chan bool)
 
 	go func() {
-		running := true
-		for running {
+	Loop:
+		for {
 			select {
 			case event, more := <-w.watcher.Events:
 				if more {
@@ -479,7 +413,7 @@ func (w *ConfigurationWatcher) Watch() {
 						}
 					}
 				} else {
-					running = false
+					break Loop
 				}
 			case err, more := <-w.watcher.Errors:
 				if more {
@@ -497,7 +431,30 @@ func (w *ConfigurationWatcher) StopWatch() {
 	close(w.stopping)
 }
 
-func loadConfiguration(dirname string) (*GConfig, error) {
+func LoadConf(dirname, consul_addr, consul_prefix, consul_token, consul_datacenter string, notify chan bool) (c *GConfig, stop_watch chan bool, err error) {
+
+	defer func() {
+		// sometimes viper panics... let's catch that
+		if r := recover(); r != nil {
+			log.WithField("recover", r).Error("Panic has been recovered in LoadConf")
+			// find out exactly what the error was and set err
+			switch x := r.(type) {
+			case string:
+				err = errors.New(x)
+			case error:
+				err = x
+			default:
+				err = errors.New("Unknown panic")
+			}
+		}
+		if err != nil {
+			sclose(stop_watch)
+			sclose(notify)
+			stop_watch = nil
+			c = nil
+		}
+	}()
+
 	v := viper.New()
 	set_defaults(v)
 	v.SetConfigName("kafka2influxdb")
@@ -505,17 +462,40 @@ func loadConfiguration(dirname string) (*GConfig, error) {
 	v.AddConfigPath("/etc/kafka2influxdb")
 	v.AddConfigPath("/usr/local/etc/kafka2influxdb")
 
-	err := v.ReadInConfig()
+	err = v.ReadInConfig()
 	if err != nil {
-		return nil, err
+		switch err.(type) {
+		default:
+			err = errwrap.Wrapf("Error reading the configuration file: {{err}}", err)
+			return
+		case viper.ConfigFileNotFoundError:
+		}
 	}
 
-	c := NewConfig()
+	if len(consul_addr) > 0 {
+		var cclient *consul_api.Client
+		var results map[string]string
+		cclient, err = NewConsulClient(consul_addr, consul_token, consul_datacenter)
+		if err != nil {
+			log.WithError(err).Error("Error creating consul client")
+			return
+		}
+		results, stop_watch, err = WatchTree(cclient, consul_prefix, notify)
+		if err != nil {
+			log.WithError(err).Error("Error getting configuration items from Consul")
+			return
+		}
+		ParseConfigFromConsul(v, consul_prefix, results)
+	} else {
+		sclose(notify)
+	}
+
+	c = NewConfig()
 	err = v.Unmarshal(c)
 	if err != nil {
-		return nil, err
+		log.WithError(err).Error("Error unmarshaling configuration")
+		return
 	}
-
 	mapping_labels_map := map[string]bool{}
 	for _, mapping := range c.Mapping {
 		for _, label := range mapping {
@@ -539,22 +519,47 @@ func loadConfiguration(dirname string) (*GConfig, error) {
 			continue
 		}
 		for _, field := range fields {
-			v.SetDefault(fmt.Sprintf("topic_conf.%s.%s", label, field), v.Get(fmt.Sprintf("topic_conf.default.%s", field)))
+			k := fmt.Sprintf("topic_conf.%s.%s", label, field)
+			def_val := v.Get(fmt.Sprintf("topic_conf.default.%s", field))
+			v.SetDefault(k, def_val)
 		}
 	}
 
+	var fname string
+	// reread conf with the new defaults
 	err = v.ReadInConfig()
-	if err != nil {
-		return nil, err
+	if err == nil {
+		fname = filepath.Clean(v.ConfigFileUsed())
+	} else {
+		switch err.(type) {
+		default:
+			err = errwrap.Wrapf("Error reading the configuration file", err)
+			return
+		case viper.ConfigFileNotFoundError:
+			log.WithError(err).Debug("No configuration file was found")
+		}
 	}
 
 	c = NewConfig()
 	err = v.Unmarshal(c)
 	if err != nil {
-		return nil, err
+		return
 	}
-	c.ConfigFilename = filepath.Clean(v.ConfigFileUsed())
-	return c, nil
+
+	// remove the topic_conf sections that are not used in a mapping
+	valid_topic_confs := map[string]TopicConf{}
+	for tc_k, tc_v := range c.TopicConfs {
+		_, ok := mapping_labels_map[tc_k]
+		if ok {
+			valid_topic_confs[tc_k] = tc_v
+		}
+	}
+	c.TopicConfs = valid_topic_confs
+	if len(fname) > 0 {
+		c.ConfigFilename = fname
+		log.WithField("file", c.ConfigFilename).Debug("Found configuration file")	
+	}
+	return
 }
 
 func defaultConfiguration() *GConfig {
@@ -563,4 +568,57 @@ func defaultConfiguration() *GConfig {
 	c := NewConfig()
 	v.Unmarshal(c)
 	return c
+}
+
+func ParseConfigFromConsul(vi *viper.Viper, prefix string, c map[string]string) {
+	mappings := []map[string]string{}
+	for k, val := range c {
+		val = strings.TrimSpace(val)
+		k = strings.Trim(k, "\n\r\t /")[len(prefix):]
+		k = strings.Trim(k, "\n\r\t /")
+		s := strings.Split(k, "/")
+		switch s[0] {
+		case "mappings":
+			lines := strings.Split(val, "\n")
+			for _, l := range lines {
+				l = strings.Trim(l, "\r\n\t ")
+				m := map[string]string{}
+				_, err := toml.Decode(l, &m)
+				if err == nil {
+					mappings = append(mappings, m)
+				} else {
+					log.WithError(err).WithField("mapping", l).Error("Failed to parse mapping from Consul")
+				}
+			}
+		case "global":
+			if s[1] == "topics" {
+				topics := []string{}
+				for _, topic := range strings.Split(val, ",") {
+					topics = append(topics, strings.TrimSpace(topic))
+				}
+				vi.Set("topics", topics)
+			} else {
+				k2 := strings.Join(s[1:], ".")
+				vi.Set(k2, val)
+			}
+		case "kafka":
+			if s[1] == "brokers" {
+				brokers := []string{}
+				for _, broker := range strings.Split(val, ",") {
+					brokers = append(brokers, strings.TrimSpace(broker))
+				}
+				vi.Set("kafka.brokers", strings.Split(val, ","))
+			} else {
+				k2 := strings.Join(s, ".")
+				vi.Set(k2, val)
+			}
+		default:
+			k2 := strings.Join(s, ".")
+			vi.Set(k2, val)
+		}
+	}
+	if len(mappings) > 0 {
+		vi.Set("mapping", mappings)
+	}
+
 }

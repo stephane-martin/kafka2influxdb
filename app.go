@@ -30,19 +30,19 @@ type Message struct {
 	parsed *influx.Point
 }
 
-func (app *Kafka2InfluxdbApp) reloadConfiguration(dirname string) error {
-	// read the configuration file
-	new_conf, err := loadConfiguration(dirname)
+func (app *Kafka2InfluxdbApp) reloadConfiguration(dirname, c_addr, c_prefix, c_token, c_dc string, notify chan bool) (stop_watch chan bool, err error) {
+	var c *GConfig
+	c, stop_watch, err = LoadConf(dirname, c_addr, c_prefix, c_token, c_dc, notify)
 	if err != nil {
-		return errwrap.Wrapf("Failed to read the configuration file: {{err}}", err)
+		return nil, errwrap.Wrapf("Failed to read the configuration file: {{err}}", err)
 	}
 	// check that configuration is OK
-	err = new_conf.check()
+	err = c.check()
 	if err != nil {
-		return errwrap.Wrapf("Incorrect configuration: {{err}}", err)
+		return nil, errwrap.Wrapf("Incorrect configuration: {{err}}", err)
 	}
-	app.conf = new_conf
-	return nil
+	app.conf = c
+	return
 }
 
 func listExistingUsers(client influx.Client) ([]string, error) {
@@ -495,10 +495,9 @@ func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
 	return nil
 }
 
-func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload bool, stopping bool) {
+func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping bool) {
 
 	total_count = 0
-	reload = false
 	stopping = false
 	var last_push time.Time
 	start_time := time.Now()
@@ -506,19 +505,19 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload b
 	topics, err := app.getSourceKafkaTopics()
 
 	if err != nil {
-		return 0, err, false, false
+		return 0, err, false
 	}
 
 	if len(topics) == 0 {
 		err = fmt.Errorf("No kafka topic is matching: doing nothing")
-		return 0, err, false, false
+		return 0, err, false
 	}
 
 	app.conf.cacheTopicsConfs(topics)
 
 	_, err = app.pingInfluxDB()
 	if err != nil {
-		return 0, err, false, false
+		return 0, err, false
 	}
 
 	for _, topic := range topics {
@@ -527,14 +526,14 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload b
 		if topic_conf.Auth {
 			err = app.createWriteUser(topic)
 			if err != nil {
-				return 0, err, false, false
+				return 0, err, false
 			}
 		}
 
 		if topic_conf.CreateDatabases {
 			err = app.createDatabase(topic)
 			if err != nil {
-				return 0, err, false, false
+				return 0, err, false
 			}
 		}
 
@@ -544,7 +543,7 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload b
 
 		err = app.checkDatabase(topic)
 		if err != nil {
-			return 0, err, false, false
+			return 0, err, false
 		}
 	}
 
@@ -552,7 +551,7 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload b
 	consumer, err := cluster.NewConsumer(app.conf.Kafka.Brokers, app.conf.Kafka.ConsumerGroup, topics, sarama_conf)
 	if err != nil {
 		err = errwrap.Wrapf("Failed to create the Kafka consumer: {{err}}", err)
-		return 0, err, false, false
+		return 0, err, false
 	}
 	defer consumer.Close()
 
@@ -644,18 +643,18 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload b
 		select {
 		case <-stopping_signals:
 			log.Info("Caught SIGTERM signal: stopping")
-			return total_count, nil, false, true
+			return total_count, nil, true
 		case <-reload_signals:
 			log.Info("Caught SIGHUP signal: reloading configuration")
-			return total_count, nil, true, false
+			return total_count, nil, false
 		case err, more := <-push_errors:
 			if more {
-				return total_count, err, false, false
+				return total_count, err, false
 			}
 		case err, more := <-consumer.Errors():
 			if more {
 				err = errwrap.Wrapf("Error happened in kafka consumer: {{err}}", err)
-				return total_count, err, false, false
+				return total_count, err, false
 			}
 		case ntf, more := <-consumer.Notifications():
 			if more {
@@ -675,7 +674,7 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, reload b
 						if time.Now().Sub(start_time) > refresh_topics_duration {
 							// time to refresh topics
 							log.Info("Refreshing topics")
-							return total_count, nil, false, false
+							return total_count, nil, false
 						}
 					}
 				}

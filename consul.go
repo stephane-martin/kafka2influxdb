@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/consul/api"
+	consul_api "github.com/hashicorp/consul/api"
 	"github.com/hashicorp/errwrap"
 )
 
@@ -23,9 +23,9 @@ func sclose(c chan bool) {
 	}
 }
 
-func NewConsulClient(addr, token, datacenter string) (*api.Client, error) {
+func NewConsulClient(addr, token, datacenter string) (*consul_api.Client, error) {
 
-	config := *api.DefaultConfig()
+	config := *consul_api.DefaultConfig()
 	addr = strings.TrimSpace(addr)
 	if strings.HasPrefix(addr, "http://") {
 		config.Scheme = "http"
@@ -40,7 +40,7 @@ func NewConsulClient(addr, token, datacenter string) (*api.Client, error) {
 	config.Token = strings.TrimSpace(token)
 	config.Datacenter = strings.TrimSpace(datacenter)
 
-	client, err := api.NewClient(&config)
+	client, err := consul_api.NewClient(&config)
 	if err != nil {
 		return nil, errwrap.Wrapf("Error creating the consul client: {{err}}", err)
 	}
@@ -52,10 +52,10 @@ type ServiceAddress struct {
 	Port int
 }
 
-func WatchServices(client *api.Client, service string, tag string, updates chan []ServiceAddress) (stop chan bool) {
+func WatchServices(client *consul_api.Client, service string, tag string, updates chan []ServiceAddress) (stop chan bool) {
 
 	watch := func(idx uint64) uint64 {
-		q := &api.QueryOptions{RequireConsistent: true, WaitIndex: idx, WaitTime: time.Duration(2) * time.Second}
+		q := &consul_api.QueryOptions{RequireConsistent: true, WaitIndex: idx, WaitTime: time.Duration(2) * time.Second}
 		entries, meta, err := client.Health().Service(service, tag, true, q)
 		if err != nil {
 			log.WithError(err).Error("Error fetching services from Consul")
@@ -96,7 +96,7 @@ func WatchServices(client *api.Client, service string, tag string, updates chan 
 	return stop
 }
 
-func WatchTree(client *api.Client, prefix string, notifications chan bool) (results map[string]string, stop chan bool, err error) {
+func WatchTree(client *consul_api.Client, prefix string, notifications chan bool) (results map[string]string, stop chan bool, err error) {
 	// it is our job to close notifications when we won't write anymore to it
 	if client == nil || len(prefix) == 0 {
 		log.Info("Not watching Consul for dynamic configuration")
@@ -105,12 +105,19 @@ func WatchTree(client *api.Client, prefix string, notifications chan bool) (resu
 	}
 	log.WithField("prefix", prefix).Debug("Getting configuration from Consul")
 
+	defer func() {
+		if err != nil {
+			sclose(notifications)
+			results = nil
+			stop = nil
+		}
+	}()
+
 	var first_index uint64
 	results, first_index, err = getTree(client, prefix, 0)
 
 	if err != nil {
-		sclose(notifications)
-		return nil, nil, err
+		return
 	}
 
 	if notifications == nil {
@@ -122,9 +129,9 @@ func WatchTree(client *api.Client, prefix string, notifications chan bool) (resu
 	previous_keyvalues := copy_map(results)
 
 	watch := func() {
-		results, index, err := getTree(client, prefix, previous_index)
-		if err != nil {
-			log.WithError(err).Warn("Error reading configuration in Consul")
+		results, index, inerr := getTree(client, prefix, previous_index)
+		if inerr != nil {
+			log.WithError(inerr).Warn("Error reading configuration in Consul")
 			time.Sleep(time.Second)
 			return
 		}
@@ -172,12 +179,12 @@ func WatchTree(client *api.Client, prefix string, notifications chan bool) (resu
 		}
 	}()
 
-	return results, stop, nil
+	return
 
 }
 
-func getTree(client *api.Client, prefix string, waitIndex uint64) (map[string]string, uint64, error) {
-	q := &api.QueryOptions{RequireConsistent: true, WaitIndex: waitIndex, WaitTime: time.Duration(2) * time.Second}
+func getTree(client *consul_api.Client, prefix string, waitIndex uint64) (map[string]string, uint64, error) {
+	q := &consul_api.QueryOptions{RequireConsistent: true, WaitIndex: waitIndex, WaitTime: time.Duration(2) * time.Second}
 	kvpairs, meta, err := client.KV().List(prefix, q)
 	if err != nil {
 		return nil, 0, errwrap.Wrapf("Error reading configuration in Consul: {{err}}", err)

@@ -40,7 +40,11 @@ func SighupMyself() {
 var (
 	kapp = kingpin.New("kafka2influxdb", "Get metrics from Kafka and push them to InfluxDB")
 
-	config_fname = kapp.Flag("config", "configuration directory").Default("/etc/kafka2influxdb").String()
+	config_fname      = kapp.Flag("config", "configuration directory").Default("/etc/kafka2influxdb").String()
+	consul_addr       = kapp.Flag("consul-addr", "consul address (http://ADDR:PORT)").Default("").String()
+	consul_prefix     = kapp.Flag("consul-prefix", "consul KV prefix").Default("kafka2influxdb").String()
+	consul_token      = kapp.Flag("consul-token", "token to connect to consul").Default("").String()
+	consul_datacenter = kapp.Flag("consul-datacenter", "from which consul datacenter to load configuration").Default("").String()
 
 	check_topics_cmd = kapp.Command("check-topics", "Print which topics in Kafka will be pulled")
 	default_conf_cmd = kapp.Command("default-config", "print default configuration")
@@ -52,6 +56,7 @@ var (
 	syslog_flag        = start_cmd.Flag("syslog", "send logs to local syslog").Default("false").Bool()
 	logfile_flag       = start_cmd.Flag("logfile", "write logs to some file instead of stdout/stderr").Default("").String()
 	loglevel_flag      = start_cmd.Flag("loglevel", "logging level").Default("info").String()
+	logformat_flag     = start_cmd.Flag("logformat", "logging format ('text' or 'json')").Default("text").String()
 	start_pidfile_flag = start_cmd.Flag("pidfile", "if specified, write PID file there").Default("").String()
 	watch_config_flag  = start_cmd.Flag("watchconf", "if specified, kafka2influxdb will reload itself on configuration file change").Default("false").Bool()
 
@@ -69,7 +74,7 @@ func main() {
 
 	case ping_influx_cmd.FullCommand():
 		app := Kafka2InfluxdbApp{}
-		err := app.reloadConfiguration(*config_fname)
+		_, err := app.reloadConfiguration(*config_fname, *consul_addr, *consul_prefix, *consul_token, *consul_datacenter, nil)
 		if err != nil {
 			log.WithError(err).Fatal("Failed to load configuration")
 		}
@@ -114,9 +119,8 @@ func main() {
 		}
 
 	case start_cmd.FullCommand():
-		var versions map[string]string
 		app := NewApp()
-		err := app.reloadConfiguration(*config_fname)
+		_, err := app.reloadConfiguration(*config_fname, *consul_addr, *consul_prefix, *consul_token, *consul_datacenter, nil)
 		if err != nil {
 			log.WithError(err).Fatal("Failed to load the configuration")
 		}
@@ -127,16 +131,6 @@ func main() {
 				log.WithError(err).WithField("logfile", *logfile_flag).Fatal("Failed to open the logfile")
 			}
 			logfile.Close()
-		}
-
-		// check we can connect to InfluxDB
-		versions, err = app.pingInfluxDB()
-		if err != nil {
-			log.WithError(err).Error("Initial ping to InfluxDB failed")
-		} else {
-			for mapping_name, version := range versions {
-				log.WithField("version", version).WithField("mapping", mapping_name).Info("InfluxDB ping")
-			}
 		}
 
 		if *daemonize_flag {
@@ -178,7 +172,7 @@ func main() {
 
 	case check_topics_cmd.FullCommand():
 		app := NewApp()
-		err := app.reloadConfiguration(*config_fname)
+		_, err := app.reloadConfiguration(*config_fname, *consul_addr, *consul_prefix, *consul_token, *consul_datacenter, nil)
 		if err != nil {
 			log.WithError(err).Fatal("Failed to load configuration")
 		}
@@ -199,7 +193,7 @@ func main() {
 
 	case check_conf_cmd.FullCommand():
 		app := NewApp()
-		err := app.reloadConfiguration(*config_fname)
+		_, err := app.reloadConfiguration(*config_fname, *consul_addr, *consul_prefix, *consul_token, *consul_datacenter, nil)
 
 		if err != nil {
 			log.WithError(err).Fatal("Failed to load configuration")
@@ -393,7 +387,7 @@ func do_start_real(app *Kafka2InfluxdbApp, config_dirname string, pidfilename st
 		}
 	}
 
-	if app.conf.Logformat == "json" {
+	if *logformat_flag == "json" {
 		log.Formatter = &logrus.JSONFormatter{}
 	} else {
 		log.Formatter = &logrus.TextFormatter{DisableColors: true, DisableTimestamp: disable_timestamps}
@@ -433,27 +427,39 @@ func do_start_real(app *Kafka2InfluxdbApp, config_dirname string, pidfilename st
 
 	// start the consuming loop
 	for {
-
+		notify_change_consul := make(chan bool)
+		stop_watch_consul, err := app.reloadConfiguration(config_dirname, *consul_addr, *consul_prefix, *consul_token, *consul_datacenter, notify_change_consul)
+		if err != nil {
+			log.WithError(err).Error("Failed to reload configuration: aborting")
+			break
+		}
+		if stop_watch_consul != nil {
+		go func() {
+			Loop:
+				for {
+					_, more := <-notify_change_consul
+					if more {
+						SighupMyself()
+					} else {
+						break Loop
+					}
+				}
+			}()
+		}
 		if *watch_config_flag {
 			watcher = NewConfigurationWatcher(app.conf.ConfigFilename)
 			go func() { watcher.Watch() }()
 		}
-		count, err, reload, stopping := app.consume()
+		count, err, stopping := app.consume()
 		if *watch_config_flag {
 			watcher.StopWatch()
 		}
+		sclose(stop_watch_consul)
 
 		total_count += count
 		if err == nil {
 			if stopping {
 				break
-			}
-			if reload {
-				err := app.reloadConfiguration(config_dirname)
-				if err != nil {
-					log.WithError(err).Error("Failed to reload configuration: aborting")
-					break
-				}
 			}
 			pause = app.conf.RetryDelay
 		} else {
