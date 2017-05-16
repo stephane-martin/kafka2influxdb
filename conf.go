@@ -310,15 +310,15 @@ func (c *GConfig) cacheTopicsConfs(topics []string) {
 			for k, v := range mapping {
 				topic_glob = k
 				mapping_name = v
-			}
-			g := glob.MustCompile(topic_glob)
-			if g.Match(topic) {
-				if conf, ok := c.TopicConfs[mapping_name]; ok {
-					cache_topics_confs[topic] = conf
-				} else {
-					cache_topics_confs[topic] = c.TopicConfs["default"]
+				g := glob.MustCompile(topic_glob)
+				if g.Match(topic) {
+					if conf, ok := c.TopicConfs[mapping_name]; ok {
+						cache_topics_confs[topic] = conf
+					} else {
+						cache_topics_confs[topic] = c.TopicConfs["default"]
+					}
+					break
 				}
-				break
 			}
 		}
 		if _, ok := cache_topics_confs[topic]; !ok {
