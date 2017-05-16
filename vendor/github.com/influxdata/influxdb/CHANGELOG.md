@@ -1,3 +1,21 @@
+## v1.2.4 [2017-05-08]
+
+### Bugfixes
+
+- [#8338](https://github.com/influxdata/influxdb/pull/8338): Prefix partial write errors with `partial write:` to generalize identification in other subsystems
+
+## v1.2.3 [2017-04-17]
+
+### Bugfixes
+
+- [#8190](https://github.com/influxdata/influxdb/issues/8190): History file should redact passwords before saving to history.
+- [#8187](https://github.com/influxdata/influxdb/pull/8187): Several statements were missing the DefaultDatabase method
+- [#8022](https://github.com/influxdata/influxdb/issues/8022): Segment violation in models.Tags.Get
+- [#8155](https://github.com/influxdata/influxdb/pull/8155): Simplify admin user check.
+- [#8167](https://github.com/influxdata/influxdb/issues/8167): Fix a regression when math was used with selectors.
+- [#8175](https://github.com/influxdata/influxdb/issues/8175): Ensure the input for certain functions in the query engine are ordered.
+- [#8254](https://github.com/influxdata/influxdb/pull/8254): Fix delete time fields creating unparseable points
+
 ## v1.2.2 [2017-03-14]
 
 ### Release Notes

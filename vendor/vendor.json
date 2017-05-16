@@ -27,10 +27,12 @@
 			"revisionTime": "2017-03-18T20:29:13Z"
 		},
 		{
-			"checksumSHA1": "QgGLzeUYpHknVSRie3sGSVHAPPo=",
+			"checksumSHA1": "50/2Bv2EHsoyhrd7ddZKIFMIkoo=",
 			"path": "github.com/Shopify/sarama",
-			"revision": "3efb95dad8fbcd194d3c06f7b9c40eabeb719b36",
-			"revisionTime": "2017-03-12T22:14:04Z"
+			"revision": "c01858abb625b73a3af51d0798e4ad42c8147093",
+			"revisionTime": "2017-05-08T18:36:27Z",
+			"version": "v1.12.0",
+			"versionExact": "v1.12.0"
 		},
 		{
 			"checksumSHA1": "yPzE0vml22lzqS2n9FIDL6oY7JE=",
@@ -90,12 +92,10 @@
 			"revisionTime": "2017-01-31T19:20:18Z"
 		},
 		{
-			"checksumSHA1": "IZuoapEwsNVFoakjoY6/KMKh1rI=",
+			"checksumSHA1": "umXxyjOWk2aQKrvTqRsYJypuhlw=",
 			"path": "github.com/bsm/sarama-cluster",
-			"revision": "e92a2f7a82a6f2bbdd2f7305b8a833fa22eb2138",
-			"revisionTime": "2017-03-13T12:07:42Z",
-			"version": "v2.1.6",
-			"versionExact": "v2.1.6"
+			"revision": "045a96d0acad1692fa63ca3cfb15c452115516ae",
+			"revisionTime": "2017-04-20T12:56:59Z"
 		},
 		{
 			"checksumSHA1": "RIde4eVR7Vq9gxZw7+WkGfDtLr8=",
@@ -334,13 +334,13 @@
 			"revisionTime": "2017-04-19T22:16:26Z"
 		},
 		{
-			"checksumSHA1": "7TZuuRIIoAFwh1byFKG3C4TECTc=",
+			"checksumSHA1": "S/KrTqI6TbaHsFZNarwAj6BuyfU=",
 			"path": "github.com/influxdata/influxdb",
-			"revision": "1bcf3ae74c6b9c4897dab68d513d056277eb24f7",
-			"revisionTime": "2017-03-14T19:25:00Z",
+			"revision": "77909d7c7826afe597b12d957996d6e16cd1afaa",
+			"revisionTime": "2017-05-08T19:44:46Z",
 			"tree": true,
-			"version": "v1.2.2",
-			"versionExact": "v1.2.2"
+			"version": "v1.2.4",
+			"versionExact": "v1.2.4"
 		},
 		{
 			"checksumSHA1": "y6t89mEyPkbW/Bpvz/F4nzWmn5U=",

@@ -94,7 +94,7 @@ type PartialWriteError struct {
 }
 
 func (e PartialWriteError) Error() string {
-	return fmt.Sprintf("%s dropped=%d", e.Reason, e.Dropped)
+	return fmt.Sprintf("partial write: %s dropped=%d", e.Reason, e.Dropped)
 }
 
 // Shard represents a self-contained time series database. An inverted index of
@@ -501,7 +501,7 @@ func (s *Shard) validateSeriesAndFields(points []models.Point) ([]models.Point, 
 		fieldsToCreate []*FieldCreate
 		err            error
 		dropped, n     int
-		reason         string
+		reason         string // only first error reason is set unless returned from CreateSeriesListIfNotExists
 	)
 	if s.options.Config.MaxValuesPerTag > 0 {
 		// Validate that all the new points would not exceed any limits, if so, we drop them
@@ -522,8 +522,10 @@ func (s *Shard) validateSeriesAndFields(points []models.Point) ([]models.Point, 
 					n := m.CardinalityBytes(tag.Key)
 					if n >= s.options.Config.MaxValuesPerTag {
 						dropPoint = true
-						reason = fmt.Sprintf("max-values-per-tag limit exceeded (%d/%d): measurement=%q tag=%q value=%q",
-							n, s.options.Config.MaxValuesPerTag, m.Name, tag.Key, tag.Value)
+						if reason == "" {
+							reason = fmt.Sprintf("max-values-per-tag limit exceeded (%d/%d): measurement=%q tag=%q value=%q",
+								n, s.options.Config.MaxValuesPerTag, m.Name, tag.Key, tag.Value)
+						}
 						break
 					}
 				}
@@ -546,26 +548,32 @@ func (s *Shard) validateSeriesAndFields(points []models.Point) ([]models.Point, 
 	var skip bool
 	for i, p := range points {
 		skip = false
-		// verify the tags and fields
+
+		// Drop any series w/ a "time" tag, these are illegal
 		tags := p.Tags()
 		if v := tags.Get(timeBytes); v != nil {
-			s.logger.Info(fmt.Sprintf("dropping tag 'time' from '%s'\n", p.PrecisionString("")))
-			tags.Delete(timeBytes)
-			p.SetTags(tags)
+			dropped++
+			if reason == "" {
+				reason = fmt.Sprintf("invalid tag key: input tag \"%s\" on measurement \"%s\" is invalid", "time", p.Name())
+			}
+			continue
 		}
 
 		var validField bool
 		iter := p.FieldIterator()
 		for iter.Next() {
 			if bytes.Equal(iter.FieldKey(), timeBytes) {
-				s.logger.Info(fmt.Sprintf("dropping field 'time' from '%s'\n", p.PrecisionString("")))
-				iter.Delete()
 				continue
 			}
 			validField = true
+			break
 		}
 
 		if !validField {
+			dropped++
+			if reason == "" {
+				reason = fmt.Sprintf("invalid field name: input field \"%s\" on measurement \"%s\" is invalid", "time", p.Name())
+			}
 			continue
 		}
 
@@ -577,8 +585,10 @@ func (s *Shard) validateSeriesAndFields(points []models.Point) ([]models.Point, 
 			if s.options.Config.MaxSeriesPerDatabase > 0 && s.index.SeriesN()+1 > s.options.Config.MaxSeriesPerDatabase {
 				atomic.AddInt64(&s.stats.WritePointsDropped, 1)
 				dropped++
-				reason = fmt.Sprintf("max-series-per-database limit exceeded: db=%s (%d/%d)",
-					s.database, s.index.SeriesN(), s.options.Config.MaxSeriesPerDatabase)
+				if reason == "" {
+					reason = fmt.Sprintf("max-series-per-database limit exceeded: db=%s (%d/%d)",
+						s.database, s.index.SeriesN(), s.options.Config.MaxSeriesPerDatabase)
+				}
 				continue
 			}
 
@@ -592,10 +602,14 @@ func (s *Shard) validateSeriesAndFields(points []models.Point) ([]models.Point, 
 
 		// see if the field definitions need to be saved to the shard
 		mf := s.engine.MeasurementFields(p.Name())
-
 		if mf == nil {
 			var createType influxql.DataType
 			for iter.Next() {
+				// Skip fields name "time", they are illegal
+				if bytes.Equal(iter.FieldKey(), timeBytes) {
+					continue
+				}
+
 				switch iter.Type() {
 				case models.Float:
 					createType = influxql.Float
@@ -614,7 +628,9 @@ func (s *Shard) validateSeriesAndFields(points []models.Point) ([]models.Point, 
 					if f.Type != createType {
 						atomic.AddInt64(&s.stats.WritePointsDropped, 1)
 						dropped++
-						reason = fmt.Sprintf("%s: input field \"%s\" on measurement \"%s\" is type %s, already exists as type %s", ErrFieldTypeConflict, iter.FieldKey(), p.Name(), createType, f.Type)
+						if reason == "" {
+							reason = fmt.Sprintf("%s: input field \"%s\" on measurement \"%s\" is type %s, already exists as type %s", ErrFieldTypeConflict, iter.FieldKey(), p.Name(), createType, f.Type)
+						}
 						skip = true
 					} else {
 						continue // Field is present, and it's of the same type. Nothing more to do.
@@ -631,6 +647,12 @@ func (s *Shard) validateSeriesAndFields(points []models.Point) ([]models.Point, 
 
 		// validate field types and encode data
 		for iter.Next() {
+
+			// Skip fields name "time", they are illegal
+			if bytes.Equal(iter.FieldKey(), timeBytes) {
+				continue
+			}
+
 			var fieldType influxql.DataType
 			switch iter.Type() {
 			case models.Float:
@@ -649,7 +671,9 @@ func (s *Shard) validateSeriesAndFields(points []models.Point) ([]models.Point, 
 				if f.Type != fieldType {
 					atomic.AddInt64(&s.stats.WritePointsDropped, 1)
 					dropped++
-					reason = fmt.Sprintf("%s: input field \"%s\" on measurement \"%s\" is type %s, already exists as type %s", ErrFieldTypeConflict, iter.FieldKey(), p.Name(), fieldType, f.Type)
+					if reason == "" {
+						reason = fmt.Sprintf("%s: input field \"%s\" on measurement \"%s\" is type %s, already exists as type %s", ErrFieldTypeConflict, iter.FieldKey(), p.Name(), fieldType, f.Type)
+					}
 					skip = true
 				} else {
 					continue // Field is present, and it's of the same type. Nothing more to do.

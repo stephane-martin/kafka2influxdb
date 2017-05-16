@@ -26,13 +26,18 @@ import (
 //go:generate tmpl -data=@iterator.gen.go.tmpldata iterator.gen.go.tmpl
 //go:generate tmpl -data=@file_store.gen.go.tmpldata file_store.gen.go.tmpl
 //go:generate tmpl -data=@encoding.gen.go.tmpldata encoding.gen.go.tmpl
+//go:generate tmpl -data=@compact.gen.go.tmpldata compact.gen.go.tmpl
 
 func init() {
 	tsdb.RegisterEngine("tsm1", NewEngine)
 }
 
-// Ensure Engine implements the interface.
-var _ tsdb.Engine = &Engine{}
+var (
+	// Ensure Engine implements the interface.
+	_ tsdb.Engine = &Engine{}
+	// Static objects to prevent small allocs.
+	timeBytes = []byte("time")
+)
 
 const (
 	// keyFieldSeparator separates the series key from the field name in the composite key
@@ -444,7 +449,6 @@ func (e *Engine) LoadMetadataIndex(shardID uint64, index *tsdb.DatabaseIndex) er
 
 	// Save reference to index for iterator creation.
 	e.index = index
-	e.FileStore.dereferencer = index
 
 	if err := e.FileStore.WalkKeys(func(key []byte, typ byte) error {
 		fieldType, err := tsmFieldTypeToInfluxQLDataType(typ)
@@ -652,7 +656,7 @@ func (e *Engine) addToIndexFromKey(shardID uint64, key []byte, fieldType influxq
 	_, tags, _ := models.ParseKey(seriesKey)
 
 	s := tsdb.NewSeries(string(seriesKey), tags)
-	index.CreateSeriesIndexIfNotExists(measurement, s, false)
+	index.CreateSeriesIndexIfNotExists(measurement, s, true)
 	s.AssignShard(shardID)
 
 	return nil
@@ -671,6 +675,11 @@ func (e *Engine) WritePoints(points []models.Point) error {
 		iter := p.FieldIterator()
 		t := p.Time().UnixNano()
 		for iter.Next() {
+			// Skip fields name "time", they are illegal
+			if bytes.Equal(iter.FieldKey(), timeBytes) {
+				continue
+			}
+
 			keyBuf = append(keyBuf[:baseLen], iter.FieldKey()...)
 			var v Value
 			switch iter.Type() {
