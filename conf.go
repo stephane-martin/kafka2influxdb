@@ -4,15 +4,12 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
-	//"io/ioutil"
 	"errors"
 	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-	//"unicode/utf8"
-
 	"github.com/BurntSushi/toml"
 	"github.com/Shopify/sarama"
 	cluster "github.com/bsm/sarama-cluster"
@@ -31,6 +28,7 @@ func NewConfig() *GConfig {
 		Topics:     []string{},
 		Mapping:    []map[string]string{},
 		Kafka:      kafka_conf,
+		MetricsConf:    MetricsConf{},
 		TopicConfs: map[string]TopicConf{},
 	}
 }
@@ -45,6 +43,28 @@ type GConfig struct {
 	Kafka            KafkaConf            `mapstructure:"kafka" toml:"kafka"`
 	TopicConfs       map[string]TopicConf `mapstructure:"topic_conf" toml:"topic_conf"`
 	ConfigFilename   string               `toml:"-"`
+	MetricsConf	 MetricsConf	      `mapstructure:"metrics" toml:"metrics"`
+}
+
+type MetricsConf struct {
+	Host                 string `mapstructure:"host" toml:"host"`
+	Auth                 bool   `mapstructure:"auth" toml:"auth"`
+	Username             string `mapstructure:"username" toml:"username"`
+	Password             string `mapstructure:"password" toml:"password"`
+	CreateDatabases      bool   `mapstructure:"create_databases" toml:"create_databases"`
+	AdminUsername        string `mapstructure:"admin_username" toml:"admin_username"`
+	AdminPassword        string `mapstructure:"admin_password" toml:"admin_password"`
+	Precision            string `mapstructure:"precision" toml:"precision"`
+	RetentionPolicy      string `mapstructure:"retention_policy" toml:"retention_policy"`
+	Timeout              uint32 `mapstructure:"timeout" toml:"timeout"`
+	DatabaseName         string `mapstructure:"dbname" toml:"dbname"`
+	TlsEnable            bool   `mapstructure:"tls_enable" toml:"tls_enable"`
+	CertificateAuthority string `mapstructure:"certificate_authority" toml:"certificate_authority"`
+	Certificate          string `mapstructure:"certificate" toml:"certificate"`
+	PrivateKey           string `mapstructure:"private_key" toml:"private_key"`
+	InsecureSkipVerify   bool   `mapstructure:"insecure" toml:"insecure"`
+	Enabled		     bool   `mapstructure:"enabled" toml:"enabled"`
+	FlushInterval        uint32 `mapstructure:"flush_interval" toml:"flush_interval"`
 }
 
 type TopicConf struct {
@@ -116,6 +136,22 @@ func (conf *GConfig) sanitize() {
 	conf.Kafka.Version = strings.Trim(conf.Kafka.Version, " ")
 	conf.Kafka.SaslUsername = strings.Trim(conf.Kafka.SaslUsername, " ")
 
+	if conf.MetricsConf.Auth {
+		if len(conf.MetricsConf.Username) == 0 {
+			conf.MetricsConf.Username = conf.MetricsConf.AdminUsername
+			conf.MetricsConf.Password = conf.MetricsConf.AdminPassword
+		}
+		if len(conf.MetricsConf.AdminUsername) == 0 {
+			conf.MetricsConf.AdminUsername = conf.MetricsConf.Username
+			conf.MetricsConf.AdminPassword = conf.MetricsConf.Password
+		}
+	}
+	conf.MetricsConf.Host = strings.Trim(conf.MetricsConf.Host, " ")
+	conf.MetricsConf.Precision = normalize(conf.MetricsConf.Precision)
+	conf.MetricsConf.Username = strings.Trim(conf.MetricsConf.Username, " ")
+	conf.MetricsConf.AdminUsername = strings.Trim(conf.MetricsConf.AdminUsername, " ")
+	conf.MetricsConf.RetentionPolicy = strings.Trim(conf.MetricsConf.RetentionPolicy, " ")
+	conf.MetricsConf.DatabaseName = strings.Trim(conf.MetricsConf.DatabaseName, " ")
 }
 
 func (conf *GConfig) check() error {
@@ -194,6 +230,21 @@ func (conf *GConfig) check() error {
 		if !valid_precisions[topic_conf.Precision] {
 			return fmt.Errorf("InfluxDB precision must be one of 's', 'ms', 'u', 'ns', 'm', 'h'")
 		}
+	}
+	if conf.MetricsConf.Auth {
+		if len(conf.MetricsConf.Username) == 0 || len(conf.MetricsConf.Password) == 0 {
+			return fmt.Errorf("InfluxDB authentication is requested but username or password is empty")
+		}
+		if conf.MetricsConf.CreateDatabases && (len(conf.MetricsConf.AdminUsername) == 0 || len(conf.MetricsConf.AdminPassword) == 0) {
+			return fmt.Errorf("InfluxDB authentication is requested, should create InfluxDB databases, but admin username or password is empty")
+		}
+	}
+	if !strings.HasPrefix(conf.MetricsConf.Host, "http://") {
+		return fmt.Errorf("Incorrect format for InfluxDB host")
+	}
+
+	if !valid_precisions[conf.MetricsConf.Precision] {
+		return fmt.Errorf("InfluxDB precision must be one of 's', 'ms', 'u', 'ns', 'm', 'h'")
 	}
 
 	return nil
@@ -509,10 +560,10 @@ func LoadConf(dirname, consul_addr, consul_prefix, consul_token, consul_datacent
 
 	// when some param is not set in some topic conf, copy the values from the default conf
 	fields := []string{"host", "auth", "username", "password",
-		"create_databases", "admin_username", "admin_password", "precision",
-		"retention_policy", "timeout", "dbname", "format", "tls.enable",
-		"tls.certificate_authority", "tls.certificate", "tls.private_key",
-		"tls.insecure"}
+			   "create_databases", "admin_username", "admin_password", "precision",
+			   "retention_policy", "timeout", "dbname", "format", "tls.enable",
+			   "tls.certificate_authority", "tls.certificate", "tls.private_key",
+			   "tls.insecure"}
 
 	for _, label := range mapping_labels {
 		if label == "default" {
@@ -557,7 +608,7 @@ func LoadConf(dirname, consul_addr, consul_prefix, consul_token, consul_datacent
 	c.TopicConfs = valid_topic_confs
 	if len(fname) > 0 {
 		c.ConfigFilename = fname
-		log.WithField("file", c.ConfigFilename).Debug("Found configuration file")	
+		log.WithField("file", c.ConfigFilename).Debug("Found configuration file")
 	}
 	return
 }
@@ -621,4 +672,60 @@ func ParseConfigFromConsul(vi *viper.Viper, prefix string, c map[string]string) 
 		vi.Set("mapping", mappings)
 	}
 
+}
+
+func (conf *GConfig) getMetricsInfluxHTTPClient() (influx.Client, error) {
+	influx_conf, err := conf.getInfluxConfigMetricsConf()
+	if err != nil {
+		log.Error("Failed to generate influx conf from metrics conf")
+	}
+	client, err := influx.NewHTTPClient(influx_conf)
+	if err != nil {
+		log.Error("Failed to connect to InfluxDB: {{err}}", err)
+	}
+	return client, err
+}
+
+func (conf *GConfig) getInfluxConfigMetricsConf() (influx.HTTPConfig, error) {
+	var tlsConfigPtr *tls.Config = nil
+	var err error
+
+	if conf.MetricsConf.TlsEnable {
+		tlsConfigPtr, err = GetTLSConfig(
+			conf.MetricsConf.Certificate,
+			conf.MetricsConf.PrivateKey,
+			conf.MetricsConf.CertificateAuthority,
+			conf.MetricsConf.InsecureSkipVerify,
+		)
+		if err != nil {
+			return influx.HTTPConfig{}, errwrap.Wrapf("Failed to understand InfluxDB TLS configuration: {{err}}", err)
+		}
+	}
+
+	if conf.MetricsConf.Auth {
+		username := ""
+		password := ""
+		if false {
+			username = conf.MetricsConf.AdminUsername
+			password = strings.Replace(conf.MetricsConf.AdminPassword, `'`, `\'`, -1)
+		} else {
+			username = conf.MetricsConf.Username
+			password = strings.Replace(conf.MetricsConf.Password, `'`, `\'`, -1)
+		}
+		return influx.HTTPConfig{
+			Addr:               conf.MetricsConf.Host,
+			Username:           username,
+			Password:           password,
+			Timeout:            time.Duration(conf.MetricsConf.Timeout) * time.Millisecond,
+			InsecureSkipVerify: conf.MetricsConf.InsecureSkipVerify,
+			TLSConfig:          tlsConfigPtr,
+		}, nil
+	}
+
+	return influx.HTTPConfig{
+		Addr:               conf.MetricsConf.Host,
+		Timeout:            time.Duration(conf.MetricsConf.Timeout) * time.Millisecond,
+		InsecureSkipVerify: conf.MetricsConf.InsecureSkipVerify,
+		TLSConfig:          tlsConfigPtr,
+	}, nil
 }

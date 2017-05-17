@@ -168,6 +168,9 @@ func main() {
 				devnullfile.Close()
 			}
 		}
+		if app.conf.MetricsConf.Enabled {
+			app.InfluxMetrics()
+		}
 		do_start_real(app, *config_fname, *start_pidfile_flag, *syslog_flag, *loglevel_flag, *logfile_flag)
 
 	case check_topics_cmd.FullCommand():
@@ -434,7 +437,7 @@ func do_start_real(app *Kafka2InfluxdbApp, config_dirname string, pidfilename st
 			break
 		}
 		if stop_watch_consul != nil {
-		go func() {
+			go func() {
 			Loop:
 				for {
 					_, more := <-notify_change_consul

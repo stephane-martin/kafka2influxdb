@@ -19,10 +19,12 @@ import (
 
 type Kafka2InfluxdbApp struct {
 	conf *GConfig
+	metrics *Metrics
 }
 
 func NewApp() *Kafka2InfluxdbApp {
-	return &Kafka2InfluxdbApp{conf: NewConfig()}
+	conf := NewConfig()
+	return &Kafka2InfluxdbApp{conf, nil}
 }
 
 type Message struct {
@@ -442,7 +444,6 @@ func (app *Kafka2InfluxdbApp) getSourceKafkaTopics() ([]string, error) {
 }
 
 func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
-
 	log.WithField("nb_points", len(pack)).Info("Number of points to push to InfluxDB")
 	topicBatchMap := map[string]influx.BatchPoints{}
 
@@ -472,6 +473,7 @@ func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
 			client, err := app.conf.getInfluxClient(topic)
 			host := app.conf.getTopicConf(topic).Host
 			if err != nil {
+				app.metrics.addTopicFailureCount(topic, int64(l))
 				return errwrap.Wrapf("Failed to create the InfluxDB client: {{err}}", err)
 			}
 			defer client.Close()
@@ -482,6 +484,7 @@ func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
 					WithField("database", dbname).
 					WithField("topic", topic).
 					Error("Error happened when writing points to InfluxDB")
+				app.metrics.addTopicFailureCount(topic, int64(l))
 				return errwrap.Wrapf("Writing points to InfluxDB failed: {{err}}", err)
 			} else {
 				log.WithField("nb_points", l).
@@ -489,19 +492,24 @@ func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
 					WithField("database", dbname).
 					WithField("topic", topic).
 					Info("Points written to InfluxDB")
+				app.metrics.addTopicSuccessCount(topic, int64(l))
 			}
 		}
 	}
 	return nil
 }
 
-func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping bool) {
+func (app *Kafka2InfluxdbApp) InfluxMetrics() {
+	topicCounts := make(map[string]TopicCount)
+	parseErrors := make(map[string]int64)
+	app.metrics = &Metrics{app.conf, topicCounts, parseErrors, time.Now()}
+}
 
+func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping bool) {
 	total_count = 0
 	stopping = false
 	var last_push time.Time
 	start_time := time.Now()
-
 	topics, err := app.getSourceKafkaTopics()
 
 	if err != nil {
@@ -594,6 +602,7 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 				log.WithError(err).
 					WithField("message", string(msg.Value)).
 					Error("Error happened when parsing a metric")
+				app.metrics.addParseErrors(topic, 1)
 			} else {
 				parsed_messages <- Message{raw: msg, parsed: point}
 			}
