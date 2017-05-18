@@ -17,56 +17,57 @@ type TopicCount struct {
 	failureCount	int64
 }
 
-func (m *Metrics) addTopicSuccessCount(topic string, points int64) {
+func (m *Metrics) IngestionCountMetric(topic string, points int64) {
 	topicCount := m.topicCounts[topic]
 	topicCount.successCount = m.topicCounts[topic].successCount + points
 	m.topicCounts[topic] = topicCount
 	m.Flush()
 }
 
-func (m *Metrics) addTopicFailureCount(topic string, points int64) {
+func (m *Metrics) IngestionFailureMetric(topic string, points int64) {
 	topicCount := m.topicCounts[topic]
 	topicCount.failureCount = m.topicCounts[topic].failureCount + points
 	m.topicCounts[topic] = topicCount
 	m.Flush()
 }
 
-func (m *Metrics) addParseErrors(topic string, points int64) {
+func (m *Metrics) ParsingErrorMetric(topic string, points int64) {
 	m.parseErrors[topic] = m.parseErrors[topic] + points
 	m.Flush()
 }
 
-func DbWritePoints(topic string, conf TopicCount) (point *influx.Point) {
-	tags := map[string]string{
-		"topic": topic,
+func (m *Metrics) addIngestionCount(bp influx.BatchPoints) {
+	for topic, topicCount := range m.topicCounts {
+		tags := map[string]string{
+			"topic": topic,
+		}
+		fields := map[string]interface{}{
+			"successCount": topicCount.successCount,
+			"failureCount": topicCount.failureCount,
+		}
+		point, _ := influx.NewPoint("ingestion_count", tags, fields, time.Now())
+		bp.AddPoint(point)
 	}
-
-	fields := map[string]interface{}{
-		"successCount": conf.successCount,
-		"failureCount": conf.failureCount,
-	}
-
-	point, _ = influx.NewPoint("dbWritePoints", tags, fields, time.Now())
-	return
 }
 
-func ParseErrors(topic string, totalErrors int64) (point *influx.Point) {
-	tags := map[string]string{
-		"topic": topic,
-	}
+func (m *Metrics) addParseErrors(bp influx.BatchPoints) {
+	for topic, parseError := range m.parseErrors {
+		tags := map[string]string{
+			"topic": topic,
+		}
 
-	fields := map[string]interface{}{
-		"totalErrors": totalErrors,
+		fields := map[string]interface{}{
+			"totalErrors": parseError,
+		}
+		point, _ := influx.NewPoint("parsed_errors", tags, fields, time.Now())
+		bp.AddPoint(point)
 	}
-
-	point, _ = influx.NewPoint("parsedErrors", tags, fields, time.Now())
 	return
 }
 
 func (m *Metrics) Flush() {
 	flush_duration := time.Millisecond * time.Duration(m.conf.MetricsConf.FlushInterval)
 	if time.Now().Sub(m.last_push) > flush_duration {
-		log.Debug("Flushing Metrics")
 		bp, _ := influx.NewBatchPoints(
 			influx.BatchPointsConfig{
 				Database:        m.conf.MetricsConf.DatabaseName,
@@ -74,20 +75,12 @@ func (m *Metrics) Flush() {
 				RetentionPolicy: m.conf.MetricsConf.RetentionPolicy,
 			},
 		)
-
-		for topic, topicCount := range m.topicCounts {
-			point := DbWritePoints(topic, topicCount)
-			bp.AddPoint(point)
-		}
-
-		for topic, parseError := range m.parseErrors {
-			point := ParseErrors(topic, parseError)
-			bp.AddPoint(point)
-		}
+		m.addIngestionCount(bp)
+		m.addParseErrors(bp)
 
 		client, err := m.conf.getMetricsInfluxHTTPClient()
 		if err != nil {
-			log.WithError(err).Error("Failed to create client")
+			log.WithError(err).Error("Failed to create metrics influx client")
 		}
 		client.Write(bp)
 		m.last_push = time.Now()

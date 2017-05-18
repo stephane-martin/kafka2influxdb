@@ -473,7 +473,7 @@ func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
 			client, err := app.conf.getInfluxClient(topic)
 			host := app.conf.getTopicConf(topic).Host
 			if err != nil {
-				app.metrics.addTopicFailureCount(topic, int64(l))
+				app.metrics.IngestionFailureMetric(topic, int64(l))
 				return errwrap.Wrapf("Failed to create the InfluxDB client: {{err}}", err)
 			}
 			defer client.Close()
@@ -484,7 +484,7 @@ func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
 					WithField("database", dbname).
 					WithField("topic", topic).
 					Error("Error happened when writing points to InfluxDB")
-				app.metrics.addTopicFailureCount(topic, int64(l))
+				//app.metrics.addTopicFailureCount(topic, int64(l))
 				return errwrap.Wrapf("Writing points to InfluxDB failed: {{err}}", err)
 			} else {
 				log.WithField("nb_points", l).
@@ -492,7 +492,7 @@ func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
 					WithField("database", dbname).
 					WithField("topic", topic).
 					Info("Points written to InfluxDB")
-				app.metrics.addTopicSuccessCount(topic, int64(l))
+				app.metrics.IngestionCountMetric(topic, int64(l))
 			}
 		}
 	}
@@ -602,7 +602,7 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 				log.WithError(err).
 					WithField("message", string(msg.Value)).
 					Error("Error happened when parsing a metric")
-				app.metrics.addParseErrors(topic, 1)
+				app.metrics.ParsingErrorMetric(topic, 1)
 			} else {
 				parsed_messages <- Message{raw: msg, parsed: point}
 			}
