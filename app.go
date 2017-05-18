@@ -484,7 +484,7 @@ func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
 					WithField("database", dbname).
 					WithField("topic", topic).
 					Error("Error happened when writing points to InfluxDB")
-				//app.metrics.addTopicFailureCount(topic, int64(l))
+				app.metrics.IngestionFailureMetric(topic, int64(l))
 				return errwrap.Wrapf("Writing points to InfluxDB failed: {{err}}", err)
 			} else {
 				log.WithField("nb_points", l).
