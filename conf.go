@@ -558,13 +558,15 @@ func LoadConf(dirname, consul_addr, consul_prefix, consul_token, consul_datacent
 	}
 
 	// remove the topic_conf sections that are not used in a mapping
-	// this way the `check` method will ignore unsed topic configurations
+	// this way the `check` method will ignore unused topic configurations
 	// that may be invalid
 	valid_topic_confs := map[string]TopicConf{}
 	for tc_k, tc_v := range c.TopicConfs {
 		_, ok := mapping_labels_map[tc_k]
 		if ok {
 			valid_topic_confs[tc_k] = tc_v
+		} else {
+			log.WithField("topic_conf", tc_k).Info("Ignoring unused topic_conf section")
 		}
 	}
 	// but do not remove the default conf!
