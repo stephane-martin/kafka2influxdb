@@ -3,13 +3,15 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
-	"errors"
 	"fmt"
+	//"io/ioutil"
+	"errors"
 	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+	//"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
 	"github.com/Shopify/sarama"
@@ -43,7 +45,6 @@ type GConfig struct {
 	Kafka            KafkaConf            `mapstructure:"kafka" toml:"kafka"`
 	TopicConfs       map[string]TopicConf `mapstructure:"topic_conf" toml:"topic_conf"`
 	ConfigFilename   string               `toml:"-"`
-	SelfMetrics      TopicConf            `mapstructure:"metrics" toml:"metrics"`
 }
 
 type TopicConf struct {
@@ -54,32 +55,32 @@ type TopicConf struct {
 	CreateDatabases      bool   `mapstructure:"create_databases" toml:"create_databases"`
 	AdminUsername        string `mapstructure:"admin_username" toml:"admin_username"`
 	AdminPassword        string `mapstructure:"admin_password" toml:"admin_password"`
+	Precision            string `mapstructure:"precision" toml:"precision"`
 	RetentionPolicy      string `mapstructure:"retention_policy" toml:"retention_policy"`
 	Timeout              uint32 `mapstructure:"timeout" toml:"timeout"`
 	DatabaseName         string `mapstructure:"dbname" toml:"dbname"`
-	Precision            string `mapstructure:"precision" toml:"precision"`
+	Format               string `mapstructure:"format" toml:"format"`
 	TlsEnable            bool   `mapstructure:"tls_enable" toml:"tls_enable"`
 	CertificateAuthority string `mapstructure:"certificate_authority" toml:"certificate_authority"`
 	Certificate          string `mapstructure:"certificate" toml:"certificate"`
 	PrivateKey           string `mapstructure:"private_key" toml:"private_key"`
 	InsecureSkipVerify   bool   `mapstructure:"insecure" toml:"insecure"`
-	Format               string `mapstructure:"format" toml:"format"`
 }
 
 type KafkaConf struct {
-	Brokers              []string            `mapstructure:"brokers" toml:"brokers"`
-	ClientID             string              `mapstructure:"client_id" toml:"client_id"`
-	ConsumerGroup        string              `mapstructure:"consumer_group" toml:"consumer_group"`
-	Version              string              `mapstructure:"version" toml:"version"`
-	SaslEnable           bool                `mapstructure:"sasl_enable" toml:"sasl_enable"`
-	SaslUsername         string              `mapstructure:"sasl_username" toml:"sasl_username"`
-	SaslPassword         string              `mapstructure:"sasl_password" toml:"sasl_password"`
-	cVersion             sarama.KafkaVersion `toml:"-"`
-	TlsEnable            bool                `mapstructure:"tls_enable" toml:"tls_enable"`
-	CertificateAuthority string              `mapstructure:"certificate_authority" toml:"certificate_authority"`
-	Certificate          string              `mapstructure:"certificate" toml:"certificate"`
-	PrivateKey           string              `mapstructure:"private_key" toml:"private_key"`
-	InsecureSkipVerify   bool                `mapstructure:"insecure" toml:"insecure"`
+	Brokers              []string `mapstructure:"brokers" toml:"brokers"`
+	ClientID             string   `mapstructure:"client_id" toml:"client_id"`
+	ConsumerGroup        string   `mapstructure:"consumer_group" toml:"consumer_group"`
+	Version              string   `mapstructure:"version" toml:"version"`
+	TlsEnable            bool     `mapstructure:"tls_enable" toml:"tls_enable"`
+	CertificateAuthority string   `mapstructure:"certificate_authority" toml:"certificate_authority"`
+	Certificate          string   `mapstructure:"certificate" toml:"certificate"`
+	PrivateKey           string   `mapstructure:"private_key" toml:"private_key"`
+	InsecureSkipVerify   bool     `mapstructure:"insecure" toml:"insecure"`
+	SaslEnable           bool     `mapstructure:"sasl_enable" toml:"sasl_enable"`
+	SaslUsername         string   `mapstructure:"sasl_username" toml:"sasl_username"`
+	SaslPassword         string   `mapstructure:"sasl_password" toml:"sasl_password"`
+	cVersion             sarama.KafkaVersion
 }
 
 func normalize(s string) string {
@@ -187,7 +188,7 @@ func (conf *GConfig) check() error {
 			}
 		}
 		if !strings.HasPrefix(topic_conf.Host, "http://") {
-			return fmt.Errorf("Incorrect format for InfluxDB host '%s' in topic conf '%s'", topic_conf.Host, t)
+			return fmt.Errorf("Incorrect format for InfluxDB host")
 		}
 
 		if !valid_precisions[topic_conf.Precision] {
@@ -568,7 +569,7 @@ func LoadConf(dirname, consul_addr, consul_prefix, consul_token, consul_datacent
 
 	if len(fname) > 0 {
 		c.ConfigFilename = fname
-		log.WithField("file", c.ConfigFilename).Debug("Found configuration file")
+		log.WithField("file", c.ConfigFilename).Debug("Found configuration file")	
 	}
 	return
 }

@@ -40,24 +40,6 @@ func set_defaults(v *viper.Viper) {
 	v.SetDefault("topic_conf.default.private_key", "")
 	v.SetDefault("topic_conf.default.insecure", false)
 
-	v.SetDefault("metrics.host", "http://influxdb:8086")
-	v.SetDefault("metrics.auth", false)
-	v.SetDefault("metrics.username", "")
-	v.SetDefault("metrics.password", "")
-	v.SetDefault("metrics.create_databases", false)
-	v.SetDefault("metrics.admin_username", "")
-	v.SetDefault("metrics.admin_password", "")
-	v.SetDefault("metrics.precision", "ns")
-	v.SetDefault("metrics.retention_policy", "")
-	v.SetDefault("metrics.timeout", 5000)
-	v.SetDefault("metrics.dbname", "k2i_metrics")
-	v.SetDefault("metrics.tls_enable", false)
-	v.SetDefault("metrics.certificate_authority", "")
-	v.SetDefault("metrics.certificate", "")
-	v.SetDefault("metrics.private_key", "")
-	v.SetDefault("metrics.insecure", false)
-	v.SetDefault("metrics.enable", false)
-
 	default_mapping := map[string]string{"*": "default"}
 	v.SetDefault("mapping", []map[string]string{default_mapping})
 }

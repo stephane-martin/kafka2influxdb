@@ -192,7 +192,6 @@ func main() {
 		fmt.Println(defaultConfiguration().export())
 
 	case check_conf_cmd.FullCommand():
-		fmt.Println("Checking configuration")
 		app := NewApp()
 		_, err := app.reloadConfiguration(*config_fname, *consul_addr, *consul_prefix, *consul_token, *consul_datacenter, nil)
 

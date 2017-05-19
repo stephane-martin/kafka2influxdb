@@ -441,25 +441,10 @@ func (app *Kafka2InfluxdbApp) getSourceKafkaTopics() ([]string, error) {
 
 }
 
-type PushCounter struct {
-	Host     string
-	Topic    string
-	Database string
-	NbPoints int
-}
+func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
 
-type SelfMetric struct {
-	ParsingErrors map[string]int
-	Counters      []PushCounter
-	Timestamp     time.Time
-}
-
-func (app *Kafka2InfluxdbApp) process(pack []Message) (m *SelfMetric, err error) {
 	log.WithField("nb_points", len(pack)).Info("Number of points to push to InfluxDB")
 	topicBatchMap := map[string]influx.BatchPoints{}
-
-	nb_errors := map[string]int{}
-	counters := []PushCounter{}
 
 	for _, msg := range pack {
 		topic := msg.raw.Topic
@@ -474,36 +459,40 @@ func (app *Kafka2InfluxdbApp) process(pack []Message) (m *SelfMetric, err error)
 			)
 			topicBatchMap[topic] = bp
 		}
-		if msg.parsed == nil {
-			nb_errors[msg.raw.Topic]++
-		} else {
+		if msg.parsed != nil {
 			topicBatchMap[topic].AddPoint(msg.parsed)
 		}
 	}
 	for topic, bp := range topicBatchMap {
+
 		dbname := bp.Database()
 		l := len(bp.Points())
-		var client influx.Client
 
 		if l > 0 {
-			client, err = app.conf.getInfluxClient(topic)
+			client, err := app.conf.getInfluxClient(topic)
 			host := app.conf.getTopicConf(topic).Host
 			if err != nil {
-				err = errwrap.Wrapf("Failed to create the InfluxDB client: {{err}}", err)
-				return
+				return errwrap.Wrapf("Failed to create the InfluxDB client: {{err}}", err)
 			}
 			defer client.Close()
 			err = client.Write(bp)
 			if err != nil {
-				err = errwrap.Wrapf("Writing points to InfluxDB failed: {{err}}", err)
-				return
+				log.WithError(err).
+					WithField("host", host).
+					WithField("database", dbname).
+					WithField("topic", topic).
+					Error("Error happened when writing points to InfluxDB")
+				return errwrap.Wrapf("Writing points to InfluxDB failed: {{err}}", err)
 			} else {
-				counters = append(counters, PushCounter{Host: host, Topic: topic, Database: dbname, NbPoints: l})
+				log.WithField("nb_points", l).
+					WithField("host", host).
+					WithField("database", dbname).
+					WithField("topic", topic).
+					Info("Points written to InfluxDB")
 			}
 		}
 	}
-	self_metric := SelfMetric{ParsingErrors: nb_errors, Counters: counters, Timestamp: time.Now()}
-	return &self_metric, nil
+	return nil
 }
 
 func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping bool) {
@@ -591,94 +580,34 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 	parsed_messages := make(chan Message, app.conf.BatchSize)
 	buckets := make(chan []Message, 100)
 	push_errors := make(chan error, 100)
-	self_metrics := make(chan *SelfMetric, 100)
 
 	var parser_workers_wg sync.WaitGroup
 	var push_worker_wg sync.WaitGroup
-	var push_self_metrics_wg sync.WaitGroup
-
-	push_self_metric_worker := func() {
-		push_self_metrics_wg.Add(1)
-		var c influx.Client
-		var e error
-		if app.conf.SelfMetrics.Host != "" {
-			c, e = app.conf.getInfluxClientByTopicConf(app.conf.SelfMetrics)
-			if e != nil {
-				log.WithError(e).Warn("Error getting an Influx client: self metrics are disabled")
-				c = nil
-			}
-		}
-		for m := range self_metrics {
-			// todo: optionally write the metric to influxdb
-			batch, _ := influx.NewBatchPoints(influx.BatchPointsConfig{
-				Precision:       app.conf.SelfMetrics.Precision,
-				Database:        app.conf.SelfMetrics.DatabaseName,
-				RetentionPolicy: app.conf.SelfMetrics.RetentionPolicy})
-
-			for topic, nb_errors := range m.ParsingErrors {
-				log.WithField("nb_errors", nb_errors).WithField("topic", topic).Warn("Some messages could not be parsed properly")
-				if c != nil {
-					tags := map[string]string{"topic": topic}
-					fields := map[string]interface{}{}
-					fields["value"] = nb_errors
-					p, _ := influx.NewPoint("parsing_error_count", tags, fields, m.Timestamp)
-					batch.AddPoint(p)
-				}
-			}
-
-			for _, counter := range m.Counters {
-				log.WithField("host", counter.Host).
-					WithField("database", counter.Database).
-					WithField("topic", counter.Topic).
-					WithField("nb_points", counter.NbPoints).
-					Info("Points written to InfluxDB")
-				if c != nil {
-					tags := map[string]string{
-						"host": counter.Host,
-						"database": counter.Database,
-						"topic": counter.Topic,
-					}
-					fields := map[string]interface{}{}
-					fields["value"] = counter.NbPoints
-					p, _ := influx.NewPoint("ingestion_count", tags, fields, m.Timestamp)
-					batch.AddPoint(p)
-				}
-			}
-			if c != nil && len(batch.Points()) > 0 {
-				err := c.Write(batch)
-				if err != nil {
-					log.WithError(err).Error("Error writing self-metrics to InfluxDB")
-				}
-			}
-		}
-		push_self_metrics_wg.Done()
-	}
 
 	parse_worker := func() {
-		parser_workers_wg.Add(1)
 		for msg := range raw_messages {
 			topic := msg.Topic
 			topic_conf := app.conf.getTopicConf(topic)
 			parser := NewParser(topic_conf.Format, topic_conf.Precision)
 			point, err := parser.Parse(msg.Value)
-			if err == nil {
-				parsed_messages <- Message{raw: msg, parsed: point}
+			if err != nil {
+				log.WithError(err).
+					WithField("message", string(msg.Value)).
+					Error("Error happened when parsing a metric")
 			} else {
-				parsed_messages <- Message{raw: msg, parsed: nil}
+				parsed_messages <- Message{raw: msg, parsed: point}
 			}
 		}
 		parser_workers_wg.Done()
 	}
 
 	push_worker := func() {
-		push_worker_wg.Add(1)
 		for bucket := range buckets {
-			self_metric, err := app.process(bucket)
+			err := app.process(bucket)
 			if err != nil {
 				push_errors <- err
 				continue
 			}
-			self_metrics <- self_metric
 			stash := cluster.NewOffsetStash()
 			for _, m := range bucket {
 				stash.MarkOffset(m.raw, "")
@@ -690,26 +619,25 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 			}
 		}
 		close(push_errors)
-		close(self_metrics)
 		push_worker_wg.Done()
 	}
 
 	// defers are triggered in LIFO
 	defer func() {
-		close(buckets)
-		close(raw_messages)
 		push_worker_wg.Wait()
 		parser_workers_wg.Wait()
 		close(parsed_messages)
-		push_self_metrics_wg.Wait()
 	}()
+	defer close(raw_messages)
+	defer close(buckets)
 
 	num_cpus := runtime.NumCPU()
 	for i := 0; i < num_cpus; i++ {
+		parser_workers_wg.Add(1)
 		go parse_worker()
 	}
+	push_worker_wg.Add(1)
 	go push_worker()
-	go push_self_metric_worker()
 
 	for {
 		select {
@@ -758,9 +686,6 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 						raw_messages <- msg
 					}
 				default:
-					// no kafka message to parse, no parsed message to push...
-					// avoid spinning
-					//time.Sleep(time.Duration(200) * time.Millisecond)
 				}
 			}
 		}
