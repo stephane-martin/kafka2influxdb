@@ -2,6 +2,7 @@ package main
 
 import (
 	"time"
+	"fmt"
 	influx "github.com/influxdata/influxdb/client/v2"
 )
 
@@ -47,6 +48,9 @@ func (m *Metrics) addIngestionCount(bp influx.BatchPoints) {
 		tags := map[string]string{
 			"topic": topic,
 		}
+		for tag, value := range m.conf.MetricsConf.Tags {
+			tags[tag] = value
+		}
 		fields := map[string]interface{}{
 			"successCount": topicCount.successCount,
 			"failureCount": topicCount.failureCount,
@@ -60,6 +64,11 @@ func (m *Metrics) addParseErrors(bp influx.BatchPoints) {
 	for topic, parseError := range m.parseErrors {
 		tags := map[string]string{
 			"topic": topic,
+		}
+		for tag, value := range m.conf.MetricsConf.Tags {
+			fmt.Print(tag)
+			fmt.Print(value)
+			tags[tag] = value
 		}
 
 		fields := map[string]interface{}{

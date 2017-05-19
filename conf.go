@@ -65,6 +65,7 @@ type MetricsConf struct {
 	InsecureSkipVerify   bool   `mapstructure:"insecure" toml:"insecure"`
 	Enabled		     bool   `mapstructure:"enabled" toml:"enabled"`
 	FlushInterval        uint32 `mapstructure:"flush_interval" toml:"flush_interval"`
+	Tags		     map[string]string `mapstructure:"tags" toml:"tags"`
 }
 
 type TopicConf struct {
