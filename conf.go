@@ -207,9 +207,13 @@ func (conf *GConfig) getInfluxConfig(topic string, admin bool) (influx.HTTPConfi
 	return conf.getInfluxConfigByTopicConf(conf.getTopicConf(topic), admin)
 }
 
-func (conf *GConfig) getInfluxConfigByTopicConf(topic_conf TopicConf, admin bool) (influx.HTTPConfig, error) {
+func (conf *GConfig) getInfluxConfigByTopicConf(topic_conf *TopicConf, admin bool) (influx.HTTPConfig, error) {
 	var tlsConfigPtr *tls.Config = nil
 	var err error
+
+	if topic_conf == nil {
+		return influx.HTTPConfig{}, fmt.Errorf("nil *TopicConf. That should not happen.")
+	}
 
 	if topic_conf.TlsEnable {
 		tlsConfigPtr, err = GetTLSConfig(
@@ -299,10 +303,10 @@ func (c *GConfig) getSaramaClusterConf() (*cluster.Config, error) {
 	return cluster_conf, nil
 }
 
-var cache_topics_confs map[string]TopicConf = map[string]TopicConf{}
+var cache_topics_confs map[string](*TopicConf) = map[string](*TopicConf){}
 
 func (c *GConfig) cacheTopicsConfs(topics []string) {
-	cache_topics_confs = map[string]TopicConf{}
+	cache_topics_confs = map[string](*TopicConf){}
 	for _, topic := range topics {
 		// loop on every topic that we should consume from kafka
 		for _, mapping := range c.Mapping {
@@ -319,32 +323,33 @@ func (c *GConfig) cacheTopicsConfs(topics []string) {
 			if g.Match(topic) {
 				// the topic matches the mapping
 				if conf, ok := c.TopicConfs[mapping_name]; ok {
-					cache_topics_confs[topic] = conf
+					cache_topics_confs[topic] = &conf
 				} else {
-					cache_topics_confs[topic] = c.TopicConfs["default"]
+					// ... but that topic conf does not exist...
+					cache_topics_confs[topic] = nil
 				}
 				break
 			}
 		}
 		// there is no matching mapping for that topic
 		if _, ok := cache_topics_confs[topic]; !ok {
-			cache_topics_confs[topic] = c.TopicConfs["default"]
+			cache_topics_confs[topic] = nil
 		}
 	}
 }
 
-func (c *GConfig) getTopicConf(topic string) TopicConf {
+func (c *GConfig) getTopicConf(topic string) *TopicConf {
 	if topic_conf, ok := cache_topics_confs[topic]; ok {
 		return topic_conf
 	}
-	return c.TopicConfs["default"]
+	return nil
 }
 
 func (c *GConfig) getInfluxClient(topic string) (influx.Client, error) {
 	return c.getInfluxClientByTopicConf(c.getTopicConf(topic))
 }
 
-func (c *GConfig) getInfluxClientByTopicConf(topic_conf TopicConf) (influx.Client, error) {
+func (c *GConfig) getInfluxClientByTopicConf(topic_conf *TopicConf) (influx.Client, error) {
 	config, err := c.getInfluxConfigByTopicConf(topic_conf, false)
 	if err != nil {
 		return nil, errwrap.Wrapf("Failed to build configuration for InfluxDB: {{err}}", err)
@@ -360,7 +365,7 @@ func (c *GConfig) getInfluxAdminClient(topic string) (influx.Client, error) {
 	return c.getInfluxAdminClientByTopicConf(c.getTopicConf(topic))
 }
 
-func (c *GConfig) getInfluxAdminClientByTopicConf(topic_conf TopicConf) (influx.Client, error) {
+func (c *GConfig) getInfluxAdminClientByTopicConf(topic_conf *TopicConf) (influx.Client, error) {
 	config, err := c.getInfluxConfigByTopicConf(topic_conf, true)
 	if err != nil {
 		return nil, errwrap.Wrapf("Failed to build configuration for InfluxDB: {{err}}", err)
@@ -553,7 +558,7 @@ func LoadConf(dirname, consul_addr, consul_prefix, consul_token, consul_datacent
 	}
 
 	// remove the topic_conf sections that are not used in a mapping
-	// this way the `check` method will ignore invalid topic configurations
+	// this way the `check` method will ignore unsed topic configurations
 	// that may be invalid
 	valid_topic_confs := map[string]TopicConf{}
 	for tc_k, tc_v := range c.TopicConfs {
