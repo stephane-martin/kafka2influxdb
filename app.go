@@ -86,7 +86,7 @@ func (app *Kafka2InfluxdbApp) pingInfluxDB() (map[string]string, error) {
 
 	for mapping_name, topic_conf := range app.conf.TopicConfs {
 
-		client, err := app.conf.getInfluxAdminClientByTopicConf(topic_conf)
+		client, err := app.conf.getInfluxAdminClientByTopicConf(&topic_conf)
 
 		if err != nil {
 			log.WithError(err).Error("Error connecting to InfluxDB")
@@ -516,11 +516,6 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 		return 0, err, false
 	}
 
-	if len(topics) == 0 {
-		err = fmt.Errorf("No kafka topic is matching: doing nothing")
-		return 0, err, false
-	}
-
 	app.conf.cacheTopicsConfs(topics)
 
 	_, err = app.pingInfluxDB()
@@ -528,8 +523,15 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 		return 0, err, false
 	}
 
+	valid_topics := []string{}
+
 	for _, topic := range topics {
 		topic_conf := app.conf.getTopicConf(topic)
+		if topic_conf == nil {
+			log.WithField("topic", topic).Info("Topic does not match any mapping")
+			continue
+		}
+		valid_topics = append(valid_topics, topic)
 
 		if topic_conf.Auth {
 			err = app.createWriteUser(topic)
@@ -553,6 +555,13 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 		if err != nil {
 			return 0, err, false
 		}
+	}
+
+	topics = valid_topics	// now 'topics' only has valid topics: getTopicConf(topic) won't return nil
+
+	if len(topics) == 0 {
+		err = fmt.Errorf("No kafka topic is matching: doing nothing")
+		return 0, err, false
 	}
 
 	sarama_conf, _ := app.conf.getSaramaClusterConf()
