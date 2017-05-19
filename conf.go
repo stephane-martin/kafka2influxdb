@@ -303,15 +303,20 @@ var cache_topics_confs map[string]TopicConf = map[string]TopicConf{}
 func (c *GConfig) cacheTopicsConfs(topics []string) {
 	cache_topics_confs = map[string]TopicConf{}
 	for _, topic := range topics {
+		// loop on every topic that we should consume from kafka
 		for _, mapping := range c.Mapping {
+			// loop on every mapping
 			topic_glob := ""
 			mapping_name := ""
+			// a kafka2influxdb mapping is assumed to be just one 'topic glob' -> 'mapping name'
+			// the next loop is just a trick to get this
 			for k, v := range mapping {
 				topic_glob = k
 				mapping_name = v
 			}
 			g := glob.MustCompile(topic_glob)
 			if g.Match(topic) {
+				// the topic matches the mapping
 				if conf, ok := c.TopicConfs[mapping_name]; ok {
 					cache_topics_confs[topic] = conf
 				} else {
@@ -320,6 +325,7 @@ func (c *GConfig) cacheTopicsConfs(topics []string) {
 				break
 			}
 		}
+		// there is no matching mapping for that topic
 		if _, ok := cache_topics_confs[topic]; !ok {
 			cache_topics_confs[topic] = c.TopicConfs["default"]
 		}
@@ -546,6 +552,8 @@ func LoadConf(dirname, consul_addr, consul_prefix, consul_token, consul_datacent
 	}
 
 	// remove the topic_conf sections that are not used in a mapping
+	// this way the `check` method will ignore invalid topic configurations
+	// that may be invalid
 	valid_topic_confs := map[string]TopicConf{}
 	for tc_k, tc_v := range c.TopicConfs {
 		_, ok := mapping_labels_map[tc_k]
@@ -553,7 +561,11 @@ func LoadConf(dirname, consul_addr, consul_prefix, consul_token, consul_datacent
 			valid_topic_confs[tc_k] = tc_v
 		}
 	}
+	// but do not remove the default conf!
+	// https://github.com/stephane-martin/kafka2influxdb/issues/19
+	valid_topic_confs["default"] = c.TopicConfs["default"]
 	c.TopicConfs = valid_topic_confs
+
 	if len(fname) > 0 {
 		c.ConfigFilename = fname
 		log.WithField("file", c.ConfigFilename).Debug("Found configuration file")
