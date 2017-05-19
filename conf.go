@@ -88,19 +88,19 @@ type TopicConf struct {
 }
 
 type KafkaConf struct {
-	Brokers              []string `mapstructure:"brokers" toml:"brokers"`
-	ClientID             string   `mapstructure:"client_id" toml:"client_id"`
-	ConsumerGroup        string   `mapstructure:"consumer_group" toml:"consumer_group"`
-	Version              string   `mapstructure:"version" toml:"version"`
-	TlsEnable            bool     `mapstructure:"tls_enable" toml:"tls_enable"`
-	CertificateAuthority string   `mapstructure:"certificate_authority" toml:"certificate_authority"`
-	Certificate          string   `mapstructure:"certificate" toml:"certificate"`
-	PrivateKey           string   `mapstructure:"private_key" toml:"private_key"`
-	InsecureSkipVerify   bool     `mapstructure:"insecure" toml:"insecure"`
-	SaslEnable           bool     `mapstructure:"sasl_enable" toml:"sasl_enable"`
-	SaslUsername         string   `mapstructure:"sasl_username" toml:"sasl_username"`
-	SaslPassword         string   `mapstructure:"sasl_password" toml:"sasl_password"`
-	cVersion             sarama.KafkaVersion
+	Brokers              []string            `mapstructure:"brokers" toml:"brokers"`
+	ClientID             string              `mapstructure:"client_id" toml:"client_id"`
+	ConsumerGroup        string              `mapstructure:"consumer_group" toml:"consumer_group"`
+	Version              string              `mapstructure:"version" toml:"version"`
+	TlsEnable            bool                `mapstructure:"tls_enable" toml:"tls_enable"`
+	CertificateAuthority string              `mapstructure:"certificate_authority" toml:"certificate_authority"`
+	Certificate          string              `mapstructure:"certificate" toml:"certificate"`
+	PrivateKey           string              `mapstructure:"private_key" toml:"private_key"`
+	InsecureSkipVerify   bool                `mapstructure:"insecure" toml:"insecure"`
+	SaslEnable           bool                `mapstructure:"sasl_enable" toml:"sasl_enable"`
+	SaslUsername         string              `mapstructure:"sasl_username" toml:"sasl_username"`
+	SaslPassword         string              `mapstructure:"sasl_password" toml:"sasl_password"`
+	cVersion             sarama.KafkaVersion `toml:"-"`
 }
 
 func normalize(s string) string {
@@ -224,7 +224,7 @@ func (conf *GConfig) check() error {
 			}
 		}
 		if !strings.HasPrefix(topic_conf.Host, "http://") {
-			return fmt.Errorf("Incorrect format for InfluxDB host")
+			return fmt.Errorf("Incorrect format for InfluxDB host '%s' in topic conf '%s'", topic_conf.Host, t)
 		}
 
 		if !valid_precisions[topic_conf.Precision] {
