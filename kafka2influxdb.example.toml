@@ -82,6 +82,10 @@ timeout = 5000
 # InfluxDB database to write to (default "default_db")
 dbname = "maindb"
 
+# The format of metrics pulled from that kafka topic (default "json")
+# Can be "json" or "influx" (= line protocol). Similar to the same parameter in telegraf.
+format = "json"
+
 # Whether to use TLS to connect to InfluxDB (default false)
 tls_enable = false
 # Path to the CA certificate that's used to verify the InfluxDB server's certificate (optional)
@@ -115,9 +119,6 @@ client_id = "kafka2influxdb"
 consumer_group = "kafka2influxdb-cg"
 # Kafka version (default "0.9.0.0"). We use consumer groups, so 0.9 is required at minimum.
 version = "0.10.1.1"
-# The format used to store metrics in Kafka (default "json")
-# Can be "json" or "influx" (= line protocol). Similar to the same parameter in telegraf.
-format = "json"
 
 # Whether to use TLS to connect to Kafka (default false)
 tls_enable = false
