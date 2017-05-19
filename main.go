@@ -168,9 +168,7 @@ func main() {
 				devnullfile.Close()
 			}
 		}
-		if app.conf.MetricsConf.Enabled {
-			app.InfluxMetrics()
-		}
+		app.InfluxMetrics()
 		do_start_real(app, *config_fname, *start_pidfile_flag, *syslog_flag, *loglevel_flag, *logfile_flag)
 
 	case check_topics_cmd.FullCommand():

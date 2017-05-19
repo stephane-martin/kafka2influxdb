@@ -18,16 +18,22 @@ type TopicCount struct {
 }
 
 func (m *Metrics) IngestionCountMetric(topic string, points int64) {
-	topicCount := m.topicCounts[topic]
-	topicCount.successCount = m.topicCounts[topic].successCount + points
-	m.topicCounts[topic] = topicCount
+	if conf, ok := m.topicCounts[topic]; ok {
+		conf.successCount = conf.successCount + points
+		m.topicCounts[topic] = conf
+	} else {
+		m.topicCounts[topic] = TopicCount{successCount: points}
+	}
 	m.Flush()
 }
 
 func (m *Metrics) IngestionFailureMetric(topic string, points int64) {
-	topicCount := m.topicCounts[topic]
-	topicCount.failureCount = m.topicCounts[topic].failureCount + points
-	m.topicCounts[topic] = topicCount
+	if conf, ok := m.topicCounts[topic]; ok {
+		conf.failureCount = conf.failureCount + points
+		m.topicCounts[topic] = conf
+	} else {
+		m.topicCounts[topic] = TopicCount{failureCount: points}
+	}
 	m.Flush()
 }
 
@@ -67,7 +73,7 @@ func (m *Metrics) addParseErrors(bp influx.BatchPoints) {
 
 func (m *Metrics) Flush() {
 	flush_duration := time.Millisecond * time.Duration(m.conf.MetricsConf.FlushInterval)
-	if time.Now().Sub(m.last_push) > flush_duration {
+	if m.conf.MetricsConf.Enabled && time.Now().Sub(m.last_push) > flush_duration {
 		bp, _ := influx.NewBatchPoints(
 			influx.BatchPointsConfig{
 				Database:        m.conf.MetricsConf.DatabaseName,
