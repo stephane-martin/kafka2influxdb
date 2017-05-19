@@ -192,6 +192,7 @@ func main() {
 		fmt.Println(defaultConfiguration().export())
 
 	case check_conf_cmd.FullCommand():
+		fmt.Println("checking configuration")
 		app := NewApp()
 		_, err := app.reloadConfiguration(*config_fname, *consul_addr, *consul_prefix, *consul_token, *consul_datacenter, nil)
 
@@ -199,8 +200,11 @@ func main() {
 			log.WithError(err).Fatal("Failed to load configuration")
 		}
 
-		fmt.Println("Configuration looks OK\n")
+		fmt.Println()
 		fmt.Println(app.conf.export())
+		fmt.Println()
+		fmt.Println("Configuration looks OK")
+		fmt.Println()
 
 	case install_cmd.FullCommand():
 		if !filepath.IsAbs(*prefix_flag) {
