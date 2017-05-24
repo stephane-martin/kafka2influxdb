@@ -609,6 +609,9 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 			point, err := parser.Parse(msg.Value)
 			if err != nil {
 				log.WithError(err).
+					WithField("host", topic_conf.Host).
+					WithField("database", topic_conf.DatabaseName).
+					WithField("topic", topic).
 					WithField("message", string(msg.Value)).
 					Error("Error happened when parsing a metric")
 				app.metrics.ParsingErrorMetric(topic, 1)
