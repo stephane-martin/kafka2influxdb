@@ -501,8 +501,7 @@ func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
 
 func (app *Kafka2InfluxdbApp) InfluxMetrics() {
 	topicCounts := make(map[string]TopicCount)
-	parseErrors := make(map[string]int64)
-	app.metrics = &Metrics{app.conf, topicCounts, parseErrors, time.Now()}
+	app.metrics = &Metrics{app.conf, topicCounts, time.Now(), sync.Mutex{}}
 }
 
 func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping bool) {

@@ -2,23 +2,27 @@ package main
 
 import (
 	"time"
-	"fmt"
+	"sync"
 	influx "github.com/influxdata/influxdb/client/v2"
 )
 
 type Metrics struct {
 	conf 			*GConfig
 	topicCounts		map[string]TopicCount
-	parseErrors		map[string]int64
 	last_push		time.Time
+	mutex 			sync.Mutex
 }
 
 type TopicCount struct {
 	successCount	int64
 	failureCount	int64
+	parseCount	int64
+	lock 		sync.Mutex
 }
 
 func (m *Metrics) IngestionCountMetric(topic string, points int64) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	if conf, ok := m.topicCounts[topic]; ok {
 		conf.successCount = conf.successCount + points
 		m.topicCounts[topic] = conf
@@ -29,6 +33,8 @@ func (m *Metrics) IngestionCountMetric(topic string, points int64) {
 }
 
 func (m *Metrics) IngestionFailureMetric(topic string, points int64) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	if conf, ok := m.topicCounts[topic]; ok {
 		conf.failureCount = conf.failureCount + points
 		m.topicCounts[topic] = conf
@@ -39,7 +45,14 @@ func (m *Metrics) IngestionFailureMetric(topic string, points int64) {
 }
 
 func (m *Metrics) ParsingErrorMetric(topic string, points int64) {
-	m.parseErrors[topic] = m.parseErrors[topic] + points
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	if conf, ok := m.topicCounts[topic]; ok {
+		conf.parseCount = conf.parseCount + points
+		m.topicCounts[topic] = conf
+	} else {
+		m.topicCounts[topic] = TopicCount{parseCount: points}
+	}
 	m.Flush()
 }
 
@@ -60,26 +73,6 @@ func (m *Metrics) addIngestionCount(bp influx.BatchPoints) {
 	}
 }
 
-func (m *Metrics) addParseErrors(bp influx.BatchPoints) {
-	for topic, parseError := range m.parseErrors {
-		tags := map[string]string{
-			"topic": topic,
-		}
-		for tag, value := range m.conf.MetricsConf.Tags {
-			fmt.Print(tag)
-			fmt.Print(value)
-			tags[tag] = value
-		}
-
-		fields := map[string]interface{}{
-			"totalErrors": parseError,
-		}
-		point, _ := influx.NewPoint("parsed_errors", tags, fields, time.Now())
-		bp.AddPoint(point)
-	}
-	return
-}
-
 func (m *Metrics) Flush() {
 	flush_duration := time.Millisecond * time.Duration(m.conf.MetricsConf.FlushInterval)
 	if m.conf.MetricsConf.Enabled && time.Now().Sub(m.last_push) > flush_duration {
@@ -91,7 +84,6 @@ func (m *Metrics) Flush() {
 			},
 		)
 		m.addIngestionCount(bp)
-		m.addParseErrors(bp)
 
 		client, err := m.conf.getMetricsInfluxHTTPClient()
 		if err != nil {
