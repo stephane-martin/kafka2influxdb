@@ -1,0 +1,20 @@
+<component name="libraryTable">
+  <library name="GOPATH &lt;kafka2influxdb&gt;">
+    <CLASSES>
+      <root url="file://$PROJECT_DIR$/../../github.com" />
+      <root url="file://$PROJECT_DIR$/../../awesomeProject" />
+      <root url="file://$PROJECT_DIR$/.." />
+      <root url="file://$PROJECT_DIR$/../../k8s.io" />
+      <root url="file://$PROJECT_DIR$/../../testing" />
+      <root url="file://$PROJECT_DIR$/../../awesomeProject1" />
+    </CLASSES>
+    <SOURCES>
+      <root url="file://$PROJECT_DIR$/../../github.com" />
+      <root url="file://$PROJECT_DIR$/../../awesomeProject" />
+      <root url="file://$PROJECT_DIR$/.." />
+      <root url="file://$PROJECT_DIR$/../../k8s.io" />
+      <root url="file://$PROJECT_DIR$/../../testing" />
+      <root url="file://$PROJECT_DIR$/../../awesomeProject1" />
+    </SOURCES>
+  </library>
+</component>

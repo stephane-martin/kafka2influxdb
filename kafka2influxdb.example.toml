@@ -138,4 +138,36 @@ sasl_username = ""
 # Password for SASL PLAIN
 sasl_password = ""
 
-
+[metrics]
+host = "http://influxdb:8086"
+# Use authentication for InfluxDB (default false)
+# If true, you need to provide at least an admin user or a normal user for InfluxDB connection
+auth = true
+# InfluxDB "normal" user to write metrics
+username = "kafka2influxdb"
+# InfluxDB password for "normal" user
+password = "CHANGE_ME"
+# InfluxDB "admin" user. It is used to create databases in InfluxDB and to grant rights to the normal user.
+admin_username = "admin"
+# InfluxDB password for the "admin" user
+admin_password = "CHANGE_ME_ADMIN"
+# Whether to create the needed databases in InfluxDB (default false)
+# If true, you need to provide an admin user
+# If false, the databases in InfluxDB must be created manually before running kafka2influxdb
+create_databases = false
+# metrics timestamp precision (default "ns")
+precision = "ns"
+# the retention policy to use for writes in InfluxDB (default "")
+retention_policy = ""
+# connection timeout to InfluxDB (ms, default 5000)
+timeout = 5000
+# InfluxDB database to write to (default "default_db")
+dbname = "maindb"
+# whether or not metrics is flushed to influx
+enabled = true
+# the interval when influx is flushed
+flush_interval = 5000
+# Additional tags sent to influx
+[metrics.tags]
+foo = "bar"
+baz = "qux"
