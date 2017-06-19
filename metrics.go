@@ -67,6 +67,7 @@ func (m *Metrics) addIngestionCount(bp influx.BatchPoints) {
 		fields := map[string]interface{}{
 			"successCount": topicCount.successCount,
 			"failureCount": topicCount.failureCount,
+			"parseCount": topicCount.parseCount,
 		}
 		point, _ := influx.NewPoint("ingestion_count", tags, fields, time.Now())
 		bp.AddPoint(point)
