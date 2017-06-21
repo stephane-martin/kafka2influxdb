@@ -92,6 +92,7 @@ type KafkaConf struct {
 	Brokers              []string            `mapstructure:"brokers" toml:"brokers"`
 	ClientID             string              `mapstructure:"client_id" toml:"client_id"`
 	ConsumerGroup        string              `mapstructure:"consumer_group" toml:"consumer_group"`
+	Strategy             string              `mapstructure:"strategy" toml:"strategy"`
 	Version              string              `mapstructure:"version" toml:"version"`
 	TlsEnable            bool                `mapstructure:"tls_enable" toml:"tls_enable"`
 	CertificateAuthority string              `mapstructure:"certificate_authority" toml:"certificate_authority"`
@@ -136,6 +137,7 @@ func (conf *GConfig) sanitize() {
 	conf.Kafka.ConsumerGroup = strings.Trim(conf.Kafka.ConsumerGroup, " ")
 	conf.Kafka.Version = strings.Trim(conf.Kafka.Version, " ")
 	conf.Kafka.SaslUsername = strings.Trim(conf.Kafka.SaslUsername, " ")
+	conf.Kafka.Strategy = strings.Trim(conf.Kafka.Strategy, " ")
 
 	if conf.MetricsConf.Auth {
 		if len(conf.MetricsConf.Username) == 0 {
@@ -350,6 +352,9 @@ func (c *GConfig) getSaramaClusterConf() (*cluster.Config, error) {
 		return nil, err
 	}
 	cluster_conf := cluster.NewConfig()
+	if c.Kafka.Strategy != "" {
+		cluster_conf.Group.PartitionStrategy = cluster.Strategy(c.Kafka.Strategy)
+	}
 	cluster_conf.Config = *simple_conf
 	cluster_conf.Group.Return.Notifications = true
 	return cluster_conf, nil
