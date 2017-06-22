@@ -222,9 +222,6 @@ func (conf *GConfig) check() error {
 		if !(topic_conf.Format == "json" || topic_conf.Format == "influx") {
 			return fmt.Errorf("Kafka format must be 'influx' or 'json', but is '%s' for topic conf '%s'", topic_conf.Format, t)
 		}
-		if len(topic_conf.WriteConsistency) == 0 {
-			topic_conf.WriteConsistency = "any"
-		}
 		if topic_conf.Auth {
 			if len(topic_conf.Username) == 0 || len(topic_conf.Password) == 0 {
 				return fmt.Errorf("InfluxDB authentication is requested but username or password is empty")
