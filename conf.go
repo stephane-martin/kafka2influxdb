@@ -93,6 +93,8 @@ type KafkaConf struct {
 	ClientID             string              `mapstructure:"client_id" toml:"client_id"`
 	ConsumerGroup        string              `mapstructure:"consumer_group" toml:"consumer_group"`
 	Strategy             string              `mapstructure:"strategy" toml:"strategy"`
+	HeartBeat            uint32              `mapstructure:"heart_beat" toml:"heart_beat"`
+	Session              uint32              `mapstructure:"session" toml:"session"`
 	Version              string              `mapstructure:"version" toml:"version"`
 	TlsEnable            bool                `mapstructure:"tls_enable" toml:"tls_enable"`
 	CertificateAuthority string              `mapstructure:"certificate_authority" toml:"certificate_authority"`
@@ -313,7 +315,6 @@ func (c *GConfig) getSaramaConf() (*sarama.Config, error) {
 	var tlsConfigPtr *tls.Config = nil
 	var err error
 	conf := sarama.NewConfig()
-
 	conf.Consumer.Return.Errors = true
 	conf.Consumer.Offsets.Initial = sarama.OffsetOldest
 	conf.Consumer.MaxProcessingTime = 2000 * time.Millisecond
@@ -353,7 +354,13 @@ func (c *GConfig) getSaramaClusterConf() (*cluster.Config, error) {
 	}
 	cluster_conf := cluster.NewConfig()
 	if c.Kafka.Strategy != "" {
-		cluster_conf.Group.PartitionStrategy = cluster.Strategy(c.Kafka.Strategy)
+		cluster_conf.Group.PartitionStrategy = cluster.StrategyRoundRobin
+	}
+	if c.Kafka.HeartBeat != 0 {
+		cluster_conf.Group.Heartbeat.Interval = time.Duration(c.Kafka.HeartBeat) * time.Second
+	}
+	if c.Kafka.Session != 0 {
+		cluster_conf.Group.Session.Timeout = time.Duration(c.Kafka.Session) * time.Second
 	}
 	cluster_conf.Config = *simple_conf
 	cluster_conf.Group.Return.Notifications = true
