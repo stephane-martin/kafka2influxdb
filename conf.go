@@ -86,7 +86,7 @@ type TopicConf struct {
 	Certificate          string `mapstructure:"certificate" toml:"certificate"`
 	PrivateKey           string `mapstructure:"private_key" toml:"private_key"`
 	InsecureSkipVerify   bool   `mapstructure:"insecure" toml:"insecure"`
-	WriteConsistency     string `mapstructure:"write_consistency toml:"write_consistency"`
+	WriteConsistency     string `mapstructure:"write_consistency" toml:"write_consistency"`
 }
 
 type KafkaConf struct {
@@ -589,7 +589,7 @@ func LoadConf(dirname, consul_addr, consul_prefix, consul_token, consul_datacent
 			   "create_databases", "admin_username", "admin_password", "precision",
 			   "retention_policy", "timeout", "dbname", "format", "tls.enable",
 			   "tls.certificate_authority", "tls.certificate", "tls.private_key",
-			   "tls.insecure"}
+			   "tls.insecure","write_consistency"}
 
 	for _, label := range mapping_labels {
 		if label == "default" {
