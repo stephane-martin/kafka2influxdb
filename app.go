@@ -456,6 +456,7 @@ func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
 					Database:        topic_conf.DatabaseName,
 					Precision:       topic_conf.Precision,
 					RetentionPolicy: topic_conf.RetentionPolicy,
+					WriteConsistency: topic_conf.WriteConsistency,
 				},
 			)
 			topicBatchMap[topic] = bp

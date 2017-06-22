@@ -86,6 +86,7 @@ type TopicConf struct {
 	Certificate          string `mapstructure:"certificate" toml:"certificate"`
 	PrivateKey           string `mapstructure:"private_key" toml:"private_key"`
 	InsecureSkipVerify   bool   `mapstructure:"insecure" toml:"insecure"`
+	WriteConsistency     string `mapstructure:"write_consistency toml:"write_consistency"`
 }
 
 type KafkaConf struct {
@@ -130,6 +131,7 @@ func (conf *GConfig) sanitize() {
 		topic_conf.RetentionPolicy = strings.Trim(topic_conf.RetentionPolicy, " ")
 		topic_conf.DatabaseName = strings.Trim(topic_conf.DatabaseName, " ")
 		topic_conf.Format = strings.Trim(topic_conf.Format, " ")
+		topic_conf.WriteConsistency = strings.Trim(topic_conf.WriteConsistency, " ")
 
 		conf.TopicConfs[mapping_name] = topic_conf
 	}
@@ -219,6 +221,9 @@ func (conf *GConfig) check() error {
 	for t, topic_conf := range conf.TopicConfs {
 		if !(topic_conf.Format == "json" || topic_conf.Format == "influx") {
 			return fmt.Errorf("Kafka format must be 'influx' or 'json', but is '%s' for topic conf '%s'", topic_conf.Format, t)
+		}
+		if len(topic_conf.WriteConsistency) == 0 {
+			topic_conf.WriteConsistency = "any"
 		}
 		if topic_conf.Auth {
 			if len(topic_conf.Username) == 0 || len(topic_conf.Password) == 0 {
