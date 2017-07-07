@@ -106,6 +106,7 @@ type KafkaConf struct {
 	SaslUsername         string              `mapstructure:"sasl_username" toml:"sasl_username"`
 	SaslPassword         string              `mapstructure:"sasl_password" toml:"sasl_password"`
 	cVersion             sarama.KafkaVersion `toml:"-"`
+	Offset		     string		 `mapstructure:"offset" toml:"offset"`
 }
 
 func normalize(s string) string {
@@ -318,7 +319,11 @@ func (c *GConfig) getSaramaConf() (*sarama.Config, error) {
 	var err error
 	conf := sarama.NewConfig()
 	conf.Consumer.Return.Errors = true
-	conf.Consumer.Offsets.Initial = sarama.OffsetOldest
+	if c.Kafka.Offset == "newest" {
+		conf.Consumer.Offsets.Initial = sarama.OffsetNewest
+	} else {
+		conf.Consumer.Offsets.Initial = sarama.OffsetOldest
+	}
 	conf.Consumer.MaxProcessingTime = 2000 * time.Millisecond
 	conf.Consumer.MaxWaitTime = 500 * time.Millisecond
 	conf.ClientID = c.Kafka.ClientID
