@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"os"
+	saramaLogs "log"
 	"github.com/BurntSushi/toml"
 	"github.com/Shopify/sarama"
 	cluster "github.com/bsm/sarama-cluster"
@@ -107,6 +109,7 @@ type KafkaConf struct {
 	SaslPassword         string              `mapstructure:"sasl_password" toml:"sasl_password"`
 	cVersion             sarama.KafkaVersion `toml:"-"`
 	Offset		     string		 `mapstructure:"offset" toml:"offset"`
+	LoggingEnabled	     bool		 `mapstructure:"logging_enabled" toml:"logging_enabled"`
 }
 
 func normalize(s string) string {
@@ -342,6 +345,10 @@ func (c *GConfig) getSaramaConf() (*sarama.Config, error) {
 		}
 		conf.Net.TLS.Enable = true
 		conf.Net.TLS.Config = tlsConfigPtr
+	}
+
+	if c.Kafka.LoggingEnabled {
+		sarama.Logger = saramaLogs.New(os.Stdout, "[Sarama] ", saramaLogs.LstdFlags)
 	}
 
 	if c.Kafka.SaslEnable {

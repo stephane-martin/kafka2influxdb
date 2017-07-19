@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -370,7 +369,7 @@ func (app *Kafka2InfluxdbApp) checkDatabase(topic string) (err error) {
 	dbname := topic_conf.DatabaseName
 
 	// try to connect to the database
-	q := influx.NewQuery("SHOW SERIES", dbname, "")
+	q := influx.NewQuery("SHOW MEASUREMENTS", dbname, "")
 	resp, err := client.Query(q)
 	if err != nil || resp.Error() != nil {
 		if err == nil {
@@ -480,13 +479,24 @@ func (app *Kafka2InfluxdbApp) process(pack []Message) (err error) {
 			defer client.Close()
 			err = client.Write(bp)
 			if err != nil {
-				log.WithError(err).
-					WithField("host", host).
-					WithField("database", dbname).
-					WithField("topic", topic).
-					Error("Error happened when writing points to InfluxDB")
-				app.metrics.IngestionFailureMetric(topic, int64(l))
-				return errwrap.Wrapf("Writing points to InfluxDB failed: {{err}}", err)
+				if strings.Contains(err.Error(), "partial write") || strings.Contains(err.Error(), "field type conflict: input") {
+					log.WithError(err).
+						WithField("nb_points", l).
+						WithField("host", host).
+						WithField("database", dbname).
+						WithField("topic", topic).
+						Error("Error happened when writing points to InfluxDB")
+					app.metrics.IngestionCountMetric(topic, int64(l))
+				} else {
+					log.WithError(err).
+						WithField("host", host).
+						WithField("database", dbname).
+						WithField("topic", topic).
+						Error("Error happened when writing points to InfluxDB")
+					app.metrics.IngestionFailureMetric(topic, int64(l))
+					return errwrap.Wrapf("Writing points to InfluxDB failed: {{err}}", err)
+				}
+
 			} else {
 				log.WithField("nb_points", l).
 					WithField("host", host).
@@ -652,8 +662,7 @@ func (app *Kafka2InfluxdbApp) consume() (total_count uint64, err error, stopping
 	defer close(raw_messages)
 	defer close(buckets)
 
-	num_cpus := runtime.NumCPU()
-	for i := 0; i < num_cpus; i++ {
+	for i := 0; i < 1; i++ {
 		parser_workers_wg.Add(1)
 		go parse_worker()
 	}
